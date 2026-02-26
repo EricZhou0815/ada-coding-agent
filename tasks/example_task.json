@@ -1,0 +1,10 @@
+{
+  "task_id": "T1",
+  "title": "Add JWT authentication to login",
+  "description": "Update login endpoint to return signed JWT token upon successful authentication.",
+  "dependencies": [],
+  "acceptance_criteria": [
+    "Valid token allows access to protected routes",
+    "Requests without token return 401"
+  ]
+}
