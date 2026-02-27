@@ -64,26 +64,21 @@ class SandboxBackend(IsolationBackend):
         
         try:
             # Import Ada components
-            from agents.coding_agent import AdaCodingAgent
-            from agents.validation_agent import AdaValidationAgent
-            from agents.llm_client import OpenAIClient
-            from agents.mock_llm_client import MockLLMClient
-            from tools.tools import AdaTools
+            from agents.coding_agent import CodingAgent
+            from agents.validation_agent import ValidationAgent
+            from config import Config
+            from tools.tools import Tools
             from orchestrator.task_executor import AtomicTaskExecutor
             
             # Initialize components with restricted tools
             tools = SandboxedTools(isolated_repo)
             
-            # Use mock or real LLM based on API key availability
-            if os.getenv("OPENAI_API_KEY"):
-                llm_client = OpenAIClient()
-                print("[Sandbox] Using OpenAI LLM")
-            else:
-                llm_client = MockLLMClient()
-                print("[Sandbox] Using Mock LLM (no API key)")
+            # Use configured LLM
+            llm_client = Config.get_llm_client()
+            print(f"[Sandbox] Using {Config.get_llm_provider().capitalize()} LLM")
             
-            coding_agent = AdaCodingAgent(llm_client, tools)
-            validation_agent = AdaValidationAgent()
+            coding_agent = CodingAgent(llm_client, tools)
+            validation_agent = ValidationAgent()
             executor = AtomicTaskExecutor(
                 coding_agent,
                 validation_agent,
@@ -178,33 +173,152 @@ class SandboxedTools:
         return abs_path
     
     def read_file(self, path: str) -> str:
-        """Read a file (restricted to sandbox)."""
+        """
+        Reads a file, restricting access to the sandbox directory.
+
+        Args:
+            path (str): The relative or absolute path to read.
+
+        Returns:
+            str: The target file's content.
+
+        Raises:
+            SecurityError: If the path escapes the sandbox.
+        """
         safe_path = self._validate_path(path)
         with open(safe_path, "r") as f:
             return f.read()
     
     def write_file(self, path: str, content: str):
-        """Write to a file (restricted to sandbox)."""
+        """
+        Writes content to a file safely within the sandbox.
+
+        Args:
+            path (str): The path to write to.
+            content (str): The string content to write.
+
+        Raises:
+            SecurityError: If the path escapes the sandbox.
+        """
         safe_path = self._validate_path(path)
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         with open(safe_path, "w") as f:
             f.write(content)
     
     def delete_file(self, path: str):
-        """Delete a file (restricted to sandbox)."""
+        """
+        Deletes a file safely within the sandbox.
+
+        Args:
+            path (str): The file to delete.
+
+        Raises:
+            SecurityError: If the path escapes the sandbox.
+        """
         safe_path = self._validate_path(path)
         os.remove(safe_path)
     
     def list_files(self, directory: str) -> List[str]:
-        """List files in a directory (restricted to sandbox)."""
+        """
+        Lists files in a given directory safely within the sandbox.
+
+        Excludes noisy directories like `.git` and `node_modules`.
+
+        Args:
+            directory (str): The directory to list.
+
+        Returns:
+            List[str]: A list of relative paths.
+
+        Raises:
+            SecurityError: If the directory escapes the sandbox.
+        """
         safe_dir = self._validate_path(directory)
-        return os.listdir(safe_dir)
+        
+        ignore_dirs = {".git", "__pycache__", "venv", "node_modules", ".venv", ".pytest_cache", ".idea", ".vscode"}
+        all_files = []
+        for root, dirs, files in os.walk(safe_dir):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ignore_dirs]
+            for file in files:
+                if not file.startswith('.'):
+                    rel_path = os.path.relpath(os.path.join(root, file), safe_dir)
+                    all_files.append(rel_path)
+        return sorted(all_files)
+
+    def edit_file(self, path: str, target_content: str, replacement_content: str) -> str:
+        """
+        Modifies a file by targeting a specific string block, safe to the sandbox.
+
+        Args:
+            path (str): The file to safely edit.
+            target_content (str): The precise string to replace.
+            replacement_content (str): The content to insert.
+
+        Returns:
+            str: A success message.
+
+        Raises:
+            SecurityError: If the path escapes the sandbox.
+            ValueError: If target_content is invalid, missing, or multiple.
+        """
+        safe_path = self._validate_path(path)
+        with open(safe_path, "r") as f:
+            content = f.read()
+            
+        occurrences = content.count(target_content)
+        if occurrences == 0:
+            raise ValueError("Edit failed: target_content not found in the file.")
+        elif occurrences > 1:
+            raise ValueError("Edit failed: target_content matched multiple times. Ensure standard uniqueness.")
+            
+        new_content = content.replace(target_content, replacement_content, 1)
+        with open(safe_path, "w") as f:
+            f.write(new_content)
+        return "File updated successfully."
+
+    def search_codebase(self, keyword: str, directory: str = ".") -> Dict:
+        """
+        Executes a secure, sandbox-restricted grep search.
+
+        Automatically caps huge shell outputs.
+
+        Args:
+            keyword (str): The keyword or regex to search for.
+            directory (str, optional): The base folder to search in. Defaults to ".".
+
+        Returns:
+            Dict: Output stdout, stderr, and exit_code.
+        """
+        try:
+            safe_dir = self._validate_path(directory)
+        except Exception:
+            safe_dir = self.allowed_path
+            
+        import subprocess
+        cmd = ["grep", "-rnIE", "--exclude-dir={.git,__pycache__,venv,node_modules}", keyword, safe_dir]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        output = result.stdout.strip()
+        if len(output) > 20000:
+            output = output[:20000] + "\n...[OUTPUT TRUNCATED]..."
+            
+        return {
+            "stdout": output,
+            "stderr": result.stderr.strip(),
+            "exit_code": result.returncode
+        }
     
     def run_command(self, command: str) -> Dict:
         """
-        Execute a shell command (restricted and monitored).
-        
-        Note: In production, you'd want to further restrict allowed commands.
+        Executes a shell command while restricting its context to the sandbox path.
+
+        Automatically blacklists inherently destructive non-sandboxed commands like `rm -rf`.
+
+        Args:
+            command (str): The raw shell command.
+
+        Returns:
+            Dict: Stdout, stderr, and exit_code of the command.
         """
         import subprocess
         
@@ -245,7 +359,12 @@ class SandboxedTools:
             }
     
     def apply_patch(self, patch_text: str):
-        """Apply a git patch (placeholder)."""
+        """
+        Applies a unified diff/git patch inside the sandbox bounds. (Placeholder)
+
+        Args:
+            patch_text (str): The patch data to safely apply.
+        """
         # TODO: Implement safe patch application
         pass
 

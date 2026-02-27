@@ -106,9 +106,10 @@ class DockerBackend(IsolationBackend):
             "--name", self.container_name,
         ]
         
-        # Add API key if available
-        if os.getenv("OPENAI_API_KEY"):
-            cmd.extend(["-e", f"OPENAI_API_KEY={os.getenv('OPENAI_API_KEY')}"])
+        # Forward API keys into the container
+        for env_var in ("GROQ_API_KEY", "OPENAI_API_KEY"):
+            if os.getenv(env_var):
+                cmd.extend(["-e", f"{env_var}={os.getenv(env_var)}"])
         
         cmd.extend([
             self.image_name,

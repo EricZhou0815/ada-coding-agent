@@ -16,9 +16,21 @@ import argparse
 from pathlib import Path
 
 from isolation import SandboxBackend, DockerBackend
+from config import Config
 
 
 def main():
+    # Automatically load .env file if it exists
+    env_file = Path('.env')
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    key, val = line.split('=', 1)
+                    if key not in os.environ:
+                        os.environ[key] = val.strip(' "\'')
+
     parser = argparse.ArgumentParser(
         description='Ada - Autonomous AI Software Engineer',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -66,9 +78,11 @@ Examples:
         sys.exit(1)
     
     # Check API key if not using mock
-    if not args.mock and not os.getenv("OPENAI_API_KEY") and args.backend == 'sandbox':
-        print("Warning: OPENAI_API_KEY not set. Falling back to mock LLM.")
-        print("Set it with: $env:OPENAI_API_KEY='your-api-key-here'")
+    llm_provider = Config.get_llm_provider()
+    if not args.mock and llm_provider == "mock" and args.backend == 'sandbox':
+        print("Warning: No API key found. Falling back to mock LLM.")
+        print("Set GROQ_API_KEY (recommended) or OPENAI_API_KEY, e.g.:")
+        print("  export GROQ_API_KEY='your-groq-key-here'")
         args.mock = True
     
     # Load task
@@ -80,7 +94,8 @@ Examples:
     print("Ada - Autonomous AI Software Engineer")
     print("=" * 70)
     print(f"Backend:     {args.backend.upper()}")
-    print(f"LLM Mode:    {'Mock (Demo)' if args.mock else 'OpenAI'}")
+    display_provider = "Mock (Demo)" if args.mock else Config.get_llm_provider().capitalize()
+    print(f"LLM Mode:    {display_provider}")
     print(f"Task:        {task['title']}")
     print(f"Description: {task['description']}")
     print(f"Repo Path:   {args.repo_path}")
@@ -94,9 +109,10 @@ Examples:
         backend = SandboxBackend()
     
     # If using mock mode with sandbox, temporarily clear API key
-    original_key = None
+    original_keys = {}
     if args.mock and args.backend == 'sandbox':
-        original_key = os.environ.pop('OPENAI_API_KEY', None)
+        for key in ('GROQ_API_KEY', 'OPENAI_API_KEY'):
+            original_keys[key] = os.environ.pop(key, None)
     
     try:
         # Setup
@@ -129,9 +145,10 @@ Examples:
         sys.exit(1)
     
     finally:
-        # Restore API key if it was temporarily removed
-        if original_key:
-            os.environ['OPENAI_API_KEY'] = original_key
+        # Restore API keys if they were temporarily removed
+        for key, val in original_keys.items():
+            if val:
+                os.environ[key] = val
         
         # Cleanup
         if not args.keep_workspace:

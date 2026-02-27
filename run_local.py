@@ -10,10 +10,10 @@ import sys
 import os
 from pathlib import Path
 
-from agents.coding_agent import AdaCodingAgent
-from agents.validation_agent import AdaValidationAgent
-from agents.llm_client import OpenAIClient
-from tools.tools import AdaTools
+from agents.coding_agent import CodingAgent
+from agents.validation_agent import ValidationAgent
+from config import Config
+from tools.tools import Tools
 from orchestrator.task_executor import AtomicTaskExecutor
 
 
@@ -37,10 +37,8 @@ def main():
         os.makedirs(repo_path, exist_ok=True)
 
     # Check for API key
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Error: OPENAI_API_KEY environment variable not set")
-        print("Set it with: $env:OPENAI_API_KEY='your-api-key-here'")
-        sys.exit(1)
+    if Config.get_llm_provider() == "mock":
+        print("Warning: No LLM provider or API key set. Will use Mock LLM.")
 
     print("=" * 60)
     print("Ada - Autonomous AI Software Engineer")
@@ -58,10 +56,10 @@ def main():
     print()
 
     # Initialize components
-    tools = AdaTools()
-    llm_client = OpenAIClient()
-    coding_agent = AdaCodingAgent(llm_client, tools)
-    validation_agent = AdaValidationAgent()
+    tools = Tools()
+    llm_client = Config.get_llm_client()
+    coding_agent = CodingAgent(llm_client, tools)
+    validation_agent = ValidationAgent()
     executor = AtomicTaskExecutor(
         coding_agent, 
         validation_agent, 

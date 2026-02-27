@@ -4,17 +4,17 @@ This tests the structure and imports.
 """
 
 import sys
-from agents.coding_agent import AdaCodingAgent
-from agents.validation_agent import AdaValidationAgent
-from tools.tools import AdaTools
+from agents.coding_agent import CodingAgent
+from agents.validation_agent import ValidationAgent
+from tools.tools import Tools
 
 def test_imports():
     """Test all imports work correctly."""
     print("✓ All imports successful")
 
 def test_tools():
-    """Test AdaTools can be instantiated and used."""
-    tools = AdaTools()
+    """Test Tools can be instantiated and used."""
+    tools = Tools()
     
     # Test list_files
     files = tools.list_files("repo_snapshot")
@@ -26,7 +26,7 @@ def test_tools():
 
 def test_validation_agent():
     """Test ValidationAgent."""
-    validator = AdaValidationAgent()
+    validator = ValidationAgent()
     result = validator.validate("repo_snapshot")
     print(f"✓ Validation agent works - Result: {result}")
 
@@ -44,7 +44,7 @@ def main():
         print("✅ All basic tests passed!")
         print("=" * 60)
         print("\nTo run Ada with a real task, you need:")
-        print("1. Set OPENAI_API_KEY environment variable")
+        print("1. Set GROQ_API_KEY or OPENAI_API_KEY environment variable")
         print("2. Run: python run_local.py tasks/example_task.json repo_snapshot")
         
     except Exception as e:

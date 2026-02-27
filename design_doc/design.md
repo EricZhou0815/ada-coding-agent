@@ -34,14 +34,14 @@ This document summarizes the **design principles, architecture, and decisions** 
 
 ## **3. Core Modules & Responsibilities**
 
-### 3.1 Ada Coding Agent
+### 3.1 Coding Agent
 - Receives one atomic task at a time.
 - Decides internally how to modify code.
 - Uses provided tools for filesystem and execution.
 - Handles **planning, coding, and self-verification**.
 - Output is structured in JSON, declaring `"finish"` when done.
 
-### 3.2 Ada Validation Agent
+### 3.2 Validation Agent
 - Validates code using **linting, tests, and custom rules**.
 - Returns feedback to coding agent for iterative improvement.
 - Ensures **atomic task completion criteria** are met.

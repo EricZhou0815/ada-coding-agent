@@ -18,7 +18,15 @@ class MockLLMClient:
         
     def generate(self, prompt: str, tools: Any = None) -> Dict:
         """
-        Simulate Ada's reasoning with predefined steps.
+        Simulates an LLM generation step based on predefined internal steps.
+
+        Args:
+            prompt (str): The prompt sent by the agent.
+            tools (Any, optional): The tools provided to the simulated LLM. Defaults to None.
+
+        Returns:
+            Dict: Simulation response matching the structure of OpenAI's response dict 
+                  (contains `content`, `function_call`, and `finish_reason`).
         """
         self.conversation_history.append({"role": "user", "content": prompt})
         self.step += 1
@@ -201,7 +209,16 @@ FINISH - Task completed successfully!""",
             }
     
     def _create_function_call(self, name: str, arguments: dict):
-        """Create a mock function call object."""
+        """
+        Creates a mock function call object mimicking the OpenAI SDK structure.
+
+        Args:
+            name (str): The name of the function to call.
+            arguments (dict): The arguments to pass to the function.
+
+        Returns:
+            FunctionCall: An object with `name` and serialized `arguments`.
+        """
         class FunctionCall:
             def __init__(self, name, arguments):
                 self.name = name
@@ -210,6 +227,8 @@ FINISH - Task completed successfully!""",
         return FunctionCall(name, arguments)
     
     def reset_conversation(self):
-        """Reset conversation history."""
+        """
+        Clears the current conversation history and resets the mock's step counter.
+        """
         self.conversation_history = []
         self.step = 0

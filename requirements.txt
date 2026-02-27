@@ -1,1 +1,1 @@
-openai
+openai  # used for both OpenAI and Groq (via OpenAI-compatible API)

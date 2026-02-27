@@ -7,10 +7,10 @@ Usage: python run_demo.py
 import json
 import os
 
-from agents.coding_agent import AdaCodingAgent
-from agents.validation_agent import AdaValidationAgent
+from agents.coding_agent import CodingAgent
+from agents.validation_agent import ValidationAgent
 from agents.mock_llm_client import MockLLMClient
-from tools.tools import AdaTools
+from tools.tools import Tools
 from orchestrator.task_executor import AtomicTaskExecutor
 
 
@@ -35,10 +35,10 @@ def main():
     print()
 
     # Initialize components with mock LLM
-    tools = AdaTools()
+    tools = Tools()
     llm_client = MockLLMClient()  # Mock instead of OpenAI
-    coding_agent = AdaCodingAgent(llm_client, tools)
-    validation_agent = AdaValidationAgent()
+    coding_agent = CodingAgent(llm_client, tools)
+    validation_agent = ValidationAgent()
     executor = AtomicTaskExecutor(
         coding_agent, 
         validation_agent, 
