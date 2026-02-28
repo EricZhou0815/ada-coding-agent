@@ -82,6 +82,24 @@ python3 run_ada.py tasks/example_task.json repo_snapshot --mock
 
 ---
 
+## 🧪 Testing
+
+Ada comes with a comprehensive suite of isolated unit tests covering configurations, tool endpoints, agent loops, and orchestrators. 
+
+To execute the test suite, ensure you have the `pytest` dependency installed, and run:
+```bash
+python3 -m pytest tests/
+```
+
+### Coverage Reports
+To execute the suite and return a terminal coverage matrix highlighting missed source lines:
+```bash
+pip install pytest-cov coverage
+python3 -m pytest --cov --cov-report=term-missing tests/
+```
+
+---
+
 ## 📝 Writing Tasks
 
 Tasks are JSON files containing instructions and acceptance criteria. You can find examples in the `/tasks` folder.

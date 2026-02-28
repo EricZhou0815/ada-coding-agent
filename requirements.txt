@@ -1,1 +1,4 @@
 openai  # used for both OpenAI and Groq (via OpenAI-compatible API)
+pytest
+pytest-cov
+coverage

@@ -1,0 +1,7 @@
+[run]
+source =
+    agents
+    config.py
+    isolation
+    orchestrator
+    tools
