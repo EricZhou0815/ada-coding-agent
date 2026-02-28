@@ -29,7 +29,7 @@ def test_validate_no_criteria(mock_llm, mock_tools):
     agent = ValidationAgent(mock_llm, mock_tools)
     result = agent.run(task={}, repo_path="/repo/path", context={})
     assert result.success is True
-    assert result.output == "No criteria specified"
+    assert result.output == "No criteria or rules specified"
     mock_llm.generate.assert_not_called()
 
 def test_validate_success_pass(mock_llm, mock_tools):

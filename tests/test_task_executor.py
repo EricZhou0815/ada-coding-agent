@@ -30,10 +30,15 @@ def test_pipeline_success_first_try(agent_1, agent_2):
     assert result is True
     # Verify task ID appended
     assert "T1" in completed_tasks
-    # Because dictionaries in Python pass by reference and the list was mutated:
     # the mock records the final state of the list.
-    agent_1.run.assert_called_once_with(task, "/repo", {"completed_tasks": ["T0", "T1"]})
-    agent_2.run.assert_called_once_with(task, "/repo", {"completed_tasks": ["T0", "T1"]})
+    agent_1.run.assert_called_once_with(task, "/repo", {
+        "completed_tasks": ["T0", "T1"],
+        "global_rules": []
+    })
+    agent_2.run.assert_called_once_with(task, "/repo", {
+        "completed_tasks": ["T0", "T1"],
+        "global_rules": []
+    })
 
 def test_pipeline_success_with_retries(agent_1, agent_2):
     # Agent 1 passes, Agent 2 fails first time but pushes feedback, passing on second try

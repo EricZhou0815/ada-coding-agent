@@ -49,12 +49,13 @@ def test_build_prompt(mock_llm, mock_tools):
         "title": "Test Title",
         "description": "Test Desc"
     }
-    prompt = agent._build_prompt(task, "/repo", ["task1"], ["failed"])
+    prompt = agent._build_prompt(task, "/repo", ["task1"], ["failed"], ["Rule 1"])
     assert "Test Title" in prompt
     assert "Test Desc" in prompt
     assert "/repo" in prompt
     assert "task1" in prompt
     assert "failed" in prompt
+    assert "Rule 1" in prompt
 
 def test_run_finishes_on_keyword(mock_llm, mock_tools):
     agent = CodingAgent(mock_llm, mock_tools)

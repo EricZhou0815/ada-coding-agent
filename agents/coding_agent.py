@@ -1,6 +1,7 @@
-from typing import List, Dict
 import json
+from typing import Dict, List
 from agents.base_agent import BaseAgent, AgentResult
+from utils.logger import logger
 
 class CodingAgent(BaseAgent):
     """
@@ -37,8 +38,9 @@ class CodingAgent(BaseAgent):
         
         completed_tasks = context.get("completed_tasks", [])
         validation_feedback = context.get("validation_feedback", [])
+        global_rules = context.get("global_rules", [])
         
-        prompt = self._build_prompt(task, repo_path, completed_tasks, validation_feedback)
+        prompt = self._build_prompt(task, repo_path, completed_tasks, validation_feedback, global_rules)
         
         # Run Ada's reasoning loop
         max_tool_calls = 10
@@ -56,14 +58,14 @@ class CodingAgent(BaseAgent):
             # Check if Ada declares task finished
             if response.get("content") and "finish" in response["content"].lower():
                 self.finished = True
-                print(f"Ada: {response['content']}")
+                logger.thought(self.name, response['content'])
                 break
                 
             if response.get("content"):
-                print(f"Ada: {response['content']}")
+                logger.thought(self.name, response['content'])
         
         if tool_call_count >= max_tool_calls:
-            print(f"Ada: Reached maximum tool calls ({max_tool_calls}), completing task.")
+            logger.warning(self.name, f"Reached maximum tool calls ({max_tool_calls}), completing task.")
             self.finished = True
             
         return AgentResult(success=True, output="Coding phase completed.")
@@ -81,20 +83,24 @@ class CodingAgent(BaseAgent):
         function_name = function_call.name
         arguments = json.loads(function_call.arguments)
         
-        print(f"Ada is calling tool: {function_name}({arguments})")
+        logger.tool(self.name, function_name, arguments)
         
         # Map function calls to tool methods
         if hasattr(self.tools, function_name):
             method = getattr(self.tools, function_name)
             try:
                 result = method(**arguments)
+                output_len = len(str(result).encode('utf-8')) if result else 0
+                logger.tool_result(self.name, success=True, output_len_bytes=output_len)
                 return {"success": True, "result": result}
             except Exception as e:
+                logger.tool_result(self.name, success=False)
                 return {"success": False, "error": str(e)}
         else:
+            logger.tool_result(self.name, success=False)
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
-    def _build_prompt(self, atomic_task: Dict, repo_path: str, completed_tasks: List[str], validation_feedback: List[str]) -> str:
+    def _build_prompt(self, atomic_task: Dict, repo_path: str, completed_tasks: List[str], validation_feedback: List[str], global_rules: List[str]) -> str:
         """
         Constructs the system prompt to instruct the LLM on its objective and constraints.
 
@@ -103,25 +109,32 @@ class CodingAgent(BaseAgent):
             repo_path (str): The workspace repository path.
             completed_tasks (List[str]): A list of previously completed task IDs.
             validation_feedback (List[str]): Any feedback provided from prior validation attempts.
+            global_rules (List[str]): Quality gates to adhere to.
 
         Returns:
             str: The fully constructed, templated system prompt string.
         """
+        
+        rules_text = "\n".join(global_rules) if global_rules else "None"
+        
         return f"""
 You are Ada, an autonomous software engineer AI.
 
 Atomic Task:
-{atomic_task['title']}
+{atomic_task.get('title', 'Unknown')}
 Description:
-{atomic_task['description']}
+{atomic_task.get('description', '')}
 Dependencies: {atomic_task.get('dependencies', [])}
 Acceptance Criteria: {atomic_task.get('acceptance_criteria', [])}
+Global Quality Rules:
+{rules_text}
 
 Repo Path: {repo_path}
 Previously Completed Tasks: {completed_tasks}
 Validation Feedback: {validation_feedback if validation_feedback else "None"}
 
 Decide how to complete this task step by step. Use your provided tools to read the codebase, make changes, and verify them.
+CRITICAL: You MUST adhere to all Global Quality Rules during implementation.
 CRITICAL: You MUST use the `run_command` tool to execute your code and verify it works locally before declaring 'finish'.
 When finished, include the word "finish" in your response.
 Act as a human engineer named Ada.

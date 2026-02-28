@@ -1,6 +1,7 @@
-from typing import Dict
 import json
+from typing import Dict
 from agents.base_agent import BaseAgent, AgentResult
+from utils.logger import logger
 
 class ValidationAgent(BaseAgent):
     """
@@ -32,13 +33,14 @@ class ValidationAgent(BaseAgent):
         """
         task = task or {}
         criteria = task.get("acceptance_criteria", [])
+        global_rules = context.get("global_rules", [])
 
-        if not criteria:
-            # If no explicit criteria, we default past validation. 
-            return AgentResult(success=True, output="No criteria specified")
+        if not criteria and not global_rules:
+            # If no explicit criteria and no global rules, we default past validation. 
+            return AgentResult(success=True, output="No criteria or rules specified")
 
         self.llm.reset_conversation()
-        prompt = self._build_prompt(task, repo_path, criteria)
+        prompt = self._build_prompt(task, repo_path, criteria, global_rules)
 
         max_tool_calls = 5
         tool_call_count = 0
@@ -58,16 +60,17 @@ class ValidationAgent(BaseAgent):
 
             content = response.get("content", "")
             if content:
-                print(f"ValidationAgent: {content}")
-
-                content_upper = content.upper()
-                if "PASS" in content_upper and "FAIL" not in content_upper:
+                logger.thought(self.name, response["content"])
+                if response["content"].strip() == "PASS":
                     passed = True
                     finished = True
-                elif "FAIL" in content_upper:
+                elif response["content"].strip().startswith("FAIL"):
+                    # Extract the feedback block from the LLM's response
+                    text = response["content"]
+                    reason = text[4:].strip() if len(text) > 4 else "Unspecified criteria failure."
+                    feedback.append(reason)
                     passed = False
                     finished = True
-                    feedback.append(content)
                 else:
                     prompt = "Please finish your evaluation. Say 'PASS' if all criteria are met, or 'FAIL' if any are not met, then explain."
 
@@ -91,32 +94,41 @@ class ValidationAgent(BaseAgent):
         """
         function_name = function_call.name
         arguments = json.loads(function_call.arguments)
-        print(f"ValidationAgent is calling tool: {function_name}({arguments})")
-
+        
+        logger.tool(self.name, function_name, arguments)
+        
+        # Map function calls to tool methods
         if hasattr(self.tools, function_name):
             method = getattr(self.tools, function_name)
             try:
                 result = method(**arguments)
+                output_len = len(str(result).encode('utf-8')) if result else 0
+                logger.tool_result(self.name, success=True, output_len_bytes=output_len)
                 return {"success": True, "result": result}
             except Exception as e:
+                logger.tool_result(self.name, success=False)
                 return {"success": False, "error": str(e)}
         else:
+            logger.tool_result(self.name, success=False)
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
-    def _build_prompt(self, task: Dict, repo_path: str, criteria: list) -> str:
+    def _build_prompt(self, task: Dict, repo_path: str, criteria: list, global_rules: list) -> str:
         """
         Constructs the system prompt to instruct the Validation Agent.
         """
+        rules_text = "\n".join(global_rules) if global_rules else "None specified."
+        
         return f"""
 You are the autonomous Validation Agent. Your job is to verify if a software task was completed successfully.
 
 Task Title: {task.get('title', 'Unknown')}
 Acceptance Criteria: {criteria}
+Global Quality Rules: {rules_text}
 
 Repo Path: {repo_path}
 
-Use your tools to read the code, list files, or run tests in the repository strictly to *verify* if the acceptance criteria above are met. DO NOT write or edit code.
+Use your tools to read the code, list files, or run tests in the repository strictly to *verify* if both the task acceptance criteria and global quality rules are met. DO NOT write or edit code.
 
-If ALL criteria are verified as met, respond with exactly "PASS". 
-If ANY criteria is not met, respond with "FAIL" followed by a detailed list of feedback and why it failed.
+If ALL criteria and quality rules are verified as met, respond with exactly "PASS". 
+If ANY criteria or rule is not met, respond with "FAIL" followed by a detailed list of feedback and why it failed.
 """

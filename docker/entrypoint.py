@@ -12,6 +12,7 @@ from agents.validation_agent import ValidationAgent
 from config import Config
 from tools.tools import Tools
 from orchestrator.task_executor import PipelineOrchestrator
+from orchestrator.rule_provider import LocalFolderRuleProvider
 
 def main():
     task_file = sys.argv[1]
@@ -21,7 +22,12 @@ def main():
     coding_agent = CodingAgent(llm_client, tools)
     validation_agent = ValidationAgent(llm_client, tools)
     agents_pipeline = [coding_agent, validation_agent]
-    executor = PipelineOrchestrator(agents_pipeline, max_retries=25)
+    rule_providers = [LocalFolderRuleProvider()]
+    executor = PipelineOrchestrator(
+        agents_pipeline, 
+        rule_providers=rule_providers, 
+        max_retries=25
+    )
 
     with open(task_file) as f:
         task = json.load(f)
