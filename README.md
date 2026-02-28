@@ -21,13 +21,14 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 ## 🏛 Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  run_sdlc.py          Full SDLC:  URL + Stories → Clone → PR        │
-│  run_epic.py          Epic mode:  Stories → Plan → Execute          │
-│  run_ada.py           Task mode:  Single task JSON → Execute        │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
+┌───────────────────────────────────────┐    ┌───────────────────────────────────────┐
+│  API & Async Workers (api.main:app)   │    │  CLI Scripts (Standalone Mode)        │
+│  FastAPI → Redis Queue → Celery       │    │  run_sdlc.py | run_epic | run_ada   │
+└──────────────────┬────────────────────┘    └──────────────────┬────────────────────┘
+                   │                                            │
+                   └──────────────────────┬─────────────────────┘
+                                          │
+┌─────────────────────────────────────────▼──────────────────────────────────────────┐
 │  SDLCOrchestrator     (orchestrator/sdlc_orchestrator.py)           │
 │                                                                     │
 │  1. GitManager.clone(url)             → workspace/repo/             │
@@ -202,7 +203,46 @@ docker build -f docker/Dockerfile -t ada_agent_mvp .
 
 ## 💻 Usage
 
-### Full SDLC Mode — Clone, code, commit, and open PRs
+### 🏭 Autonomous Software Factory (Concurrent API Mode)
+
+Ada includes a robust backend architecture (FastAPI + Celery + Redis + SQLite) designed for high-throughput, parallel execution of stories in completely isolated sandboxes. This is perfect for local multi-tasking or deploying as a scalable cloud service.
+
+**1. Start the Message Broker (Redis)**
+```bash
+docker run -d -p 6379:6379 redis
+```
+
+**2. Start the API Server**
+```bash
+uvicorn api.main:app --reload
+```
+View the interactive API documentation at: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+**3. Start the Parallel Workers**
+```bash
+celery -A worker.tasks worker --loglevel=info --concurrency=4
+```
+
+**4. Dispatch a Story**
+You can now send POST requests to the API. The workers will immediately pick them up, spin up ephemeral `/tmp` sandboxes, clone the repo, write the code, and open PRs completely in parallel.
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/execute" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "repo_url": "https://github.com/owner/repo",
+           "stories": [
+             {
+               "story_id": "STORY-1",
+               "title": "Add an API endpoint",
+               "acceptance_criteria": ["Endpoint returns 200"]
+             }
+           ]
+         }'
+```
+
+---
+
+### 🖥️ CLI Mode — Clone, code, commit, and open PRs
 
 ```bash
 python3 run_sdlc.py \

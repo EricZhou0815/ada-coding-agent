@@ -96,7 +96,8 @@ class SDLCOrchestrator:
             True if all stories processed without unrecoverable failure.
         """
         workspace = Path(workspace_dir).resolve()
-        repo_path = workspace / "repo"
+        # Scope the repo directory by owner/repo to prevent collisions
+        repo_path = workspace / f"{self.gh_owner}_{self.gh_repo}"
 
         # ── Step 1: Clone ────────────────────────────────────────────────────
         logger.info("SDLCOrchestrator", f"📦 Bootstrapping workspace at: {workspace}")
