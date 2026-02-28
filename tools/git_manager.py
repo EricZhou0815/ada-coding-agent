@@ -46,18 +46,30 @@ class GitManager:
         if os.path.exists(dest_path) and os.listdir(dest_path):
             logger.info("GitManager", f"Target directory already exists and is non-empty: {dest_path}")
             logger.info("GitManager", "Skipping clone — using existing directory.")
-            return GitManager(dest_path)
+            manager = GitManager(dest_path)
+            manager.set_git_identity()
+            return manager
 
-        logger.info("GitManager", f"Cloning {url} → {dest_path}")
+        # Inject GITHUB_TOKEN into HTTPS url to prevent interactive password prompts in CI
+        token = os.getenv("GITHUB_TOKEN")
+        if url.startswith("https://") and token and "@" not in url:
+            # Insert x-access-token:{token}@ before github.com
+            url = url.replace("https://", f"https://x-access-token:{token}@")
+
+        logger.info("GitManager", f"Cloning repository → {dest_path}") # Don't log the URL with the token
         result = subprocess.run(
             ["git", "clone", url, dest_path],
             capture_output=True, text=True
         )
         if result.returncode != 0:
-            raise RuntimeError(f"git clone failed:\n{result.stderr}")
+            # Scrub token from error output
+            error_msg = result.stderr.replace(token, "***") if token else result.stderr
+            raise RuntimeError(f"git clone failed:\n{error_msg}")
 
         logger.info("GitManager", "Clone complete.")
-        return GitManager(dest_path)
+        manager = GitManager(dest_path)
+        manager.set_git_identity()
+        return manager
 
     # ─────────────────────────────────────────────────────────────────────────
     # Branch management
@@ -150,6 +162,16 @@ class GitManager:
     def pull(self, remote: str = "origin", branch: str = "main") -> None:
         """Pulls latest changes from the given remote branch."""
         self._run(["git", "pull", remote, branch], check=True)
+
+    def set_git_identity(self, name: str = "Ada AI", email: str = "ada@autonomous.ai") -> None:
+        """
+        Configures user.name and user.email locally for this repository.
+        Prevents commits from failing in CI environments (like GitHub Actions) 
+        where the global git identity is strictly not configured.
+        """
+        logger.info("GitManager", f"Configuring git identity: {name} <{email}>")
+        self._run(["git", "config", "user.name", name], check=True)
+        self._run(["git", "config", "user.email", email], check=True)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Internal

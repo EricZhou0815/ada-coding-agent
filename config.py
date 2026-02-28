@@ -24,6 +24,14 @@ class Config:
         return "mock"
 
     @classmethod
+    def get_llm_model(cls) -> str | None:
+        """
+        Get the specific LLM model to use from the environment.
+        Returns None to use the provider's default model.
+        """
+        return os.getenv("LLM_MODEL")
+
+    @classmethod
     def get_llm_client(cls, force_mock: bool = False):
         """
         Instantiate and return the appropriate LLM client based on configuration.
@@ -38,4 +46,4 @@ class Config:
             return MockLLMClient()
         else:
             from agents.llm_client import LLMClient
-            return LLMClient(provider=provider)
+            return LLMClient(provider=provider, model=cls.get_llm_model())
