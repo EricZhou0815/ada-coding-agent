@@ -68,7 +68,7 @@ class SandboxBackend(IsolationBackend):
             from agents.validation_agent import ValidationAgent
             from config import Config
             from tools.tools import Tools
-            from orchestrator.task_executor import AtomicTaskExecutor
+            from orchestrator.task_executor import PipelineOrchestrator
             
             # Initialize components with restricted tools
             tools = SandboxedTools(isolated_repo)
@@ -79,16 +79,14 @@ class SandboxBackend(IsolationBackend):
             
             coding_agent = CodingAgent(llm_client, tools)
             validation_agent = ValidationAgent(llm_client, tools)
-            executor = AtomicTaskExecutor(
-                coding_agent,
-                validation_agent,
-                isolated_repo,
-                max_iterations=25
+            agents_pipeline = [coding_agent, validation_agent]
+            executor = PipelineOrchestrator(
+                agents_pipeline,
+                max_retries=25
             )
             
-            # Execute task
-            print(f"[Sandbox] Executing task: {task['title']}")
-            executor.execute_task(task, completed_tasks)
+            # Execute the task
+            executor.execute_task(task, isolated_repo, completed_tasks)
             
             # Copy results back to original repo
             self._copy_results_back(isolated_repo, repo_path)

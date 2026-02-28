@@ -11,7 +11,7 @@ from agents.coding_agent import CodingAgent
 from agents.validation_agent import ValidationAgent
 from config import Config
 from tools.tools import Tools
-from orchestrator.task_executor import AtomicTaskExecutor
+from orchestrator.task_executor import PipelineOrchestrator
 
 def main():
     task_file = sys.argv[1]
@@ -20,13 +20,14 @@ def main():
     llm_client = Config.get_llm_client()
     coding_agent = CodingAgent(llm_client, tools)
     validation_agent = ValidationAgent(llm_client, tools)
-    executor = AtomicTaskExecutor(coding_agent, validation_agent, repo_path, max_iterations=25)
+    agents_pipeline = [coding_agent, validation_agent]
+    executor = PipelineOrchestrator(agents_pipeline, max_retries=25)
 
     with open(task_file) as f:
         task = json.load(f)
 
     completed_tasks = []
-    executor.execute_task(task, completed_tasks)
+    executor.execute_task(task, repo_path, completed_tasks)
 
 if __name__ == "__main__":
     main()

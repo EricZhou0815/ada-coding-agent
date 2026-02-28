@@ -1,65 +1,71 @@
 import pytest
 from unittest.mock import Mock, call
-from orchestrator.task_executor import AtomicTaskExecutor
+from orchestrator.task_executor import PipelineOrchestrator
+from agents.base_agent import AgentResult
 
 @pytest.fixture
-def mock_coding_agent():
+def agent_1():
     agent = Mock()
+    agent.name = "Agent1"
     agent.run = Mock()
     return agent
 
 @pytest.fixture
-def mock_validation_agent():
+def agent_2():
     agent = Mock()
-    agent.validate = Mock()
+    agent.name = "Agent2"
+    agent.run = Mock()
     return agent
 
-def test_executor_success_first_try(mock_coding_agent, mock_validation_agent):
-    mock_validation_agent.validate.return_value = {"passed": True, "feedback": []}
+def test_pipeline_success_first_try(agent_1, agent_2):
+    agent_1.run.return_value = AgentResult(success=True)
+    agent_2.run.return_value = AgentResult(success=True)
     
-    executor = AtomicTaskExecutor(mock_coding_agent, mock_validation_agent, "/repo", max_iterations=3)
+    executor = PipelineOrchestrator([agent_1, agent_2], max_retries=3)
     
     task = {"task_id": "T1", "title": "Test Title"}
-    result = executor.execute_task(task, ["T0"])
+    completed_tasks = ["T0"]
+    result = executor.execute_task(task, "/repo", completed_tasks)
     
     assert result is True
-    mock_coding_agent.run.assert_called_once_with(
-        atomic_task=task,
-        repo_path="/repo",
-        completed_tasks=["T0"],
-        validation_feedback=[]
-    )
-    mock_validation_agent.validate.assert_called_once_with("/repo", task)
+    # Verify task ID appended
+    assert "T1" in completed_tasks
+    # Because dictionaries in Python pass by reference and the list was mutated:
+    # the mock records the final state of the list.
+    agent_1.run.assert_called_once_with(task, "/repo", {"completed_tasks": ["T0", "T1"]})
+    agent_2.run.assert_called_once_with(task, "/repo", {"completed_tasks": ["T0", "T1"]})
 
-def test_executor_success_with_retries(mock_coding_agent, mock_validation_agent):
-    # Fails first, passes second
-    mock_validation_agent.validate.side_effect = [
-        {"passed": False, "feedback": ["Linter error on line 1"]},
-        {"passed": True, "feedback": []}
+def test_pipeline_success_with_retries(agent_1, agent_2):
+    # Agent 1 passes, Agent 2 fails first time but pushes feedback, passing on second try
+    agent_1.run.return_value = AgentResult(success=True)
+    agent_2.run.side_effect = [
+        AgentResult(success=False, context_updates={"error": "Syntax Error!"}),
+        AgentResult(success=True)
     ]
     
-    executor = AtomicTaskExecutor(mock_coding_agent, mock_validation_agent, "/repo", max_iterations=3)
+    executor = PipelineOrchestrator([agent_1, agent_2], max_retries=3)
     task = {"task_id": "T2", "title": "Retry Title"}
     
-    result = executor.execute_task(task, [])
+    result = executor.execute_task(task, "/repo", completed_tasks=[])
     
     assert result is True
-    assert mock_coding_agent.run.call_count == 2
-    assert mock_validation_agent.validate.call_count == 2
+    assert agent_1.run.call_count == 2
+    assert agent_2.run.call_count == 2
     
-    # Check the feedback pushed to the second run
-    second_run_kwargs = mock_coding_agent.run.call_args_list[1].kwargs
-    assert second_run_kwargs["validation_feedback"] == ["Linter error on line 1"]
+    # Second time Agent 1 runs, the context should have the error pushed by Agent 2
+    second_run_context = agent_1.run.call_args_list[1].args[2]
+    assert second_run_context["error"] == "Syntax Error!"
 
-def test_executor_max_iterations(mock_coding_agent, mock_validation_agent):
-    # Always fails
-    mock_validation_agent.validate.return_value = {"passed": False, "feedback": ["Bad logic"]}
+def test_pipeline_max_retries(agent_1, agent_2):
+    # Agent 1 always fails
+    agent_1.run.return_value = AgentResult(success=False)
     
-    executor = AtomicTaskExecutor(mock_coding_agent, mock_validation_agent, "/repo", max_iterations=2)
+    executor = PipelineOrchestrator([agent_1, agent_2], max_retries=2)
     task = {"task_id": "T3", "title": "Impossible Title"}
     
-    with pytest.raises(RuntimeError, match="exceeded max iterations \\(2\\)"):
-        executor.execute_task(task, [])
+    result = executor.execute_task(task, "/repo", completed_tasks=[])
     
-    assert mock_coding_agent.run.call_count == 2
-    assert mock_validation_agent.validate.call_count == 2
+    assert result is False
+    assert agent_1.run.call_count == 2
+    # Agent 2 should never be called because the pipeline breaks early
+    assert agent_2.run.call_count == 0

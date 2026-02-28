@@ -64,7 +64,7 @@ def test_run_finishes_on_keyword(mock_llm, mock_tools):
     }
     
     task = {"title": "T", "description": "D"}
-    agent.run(task, "/repo", [])
+    agent.run(task, "/repo", {"completed_tasks": []})
     
     assert agent.finished == True
     mock_llm.reset_conversation.assert_called_once()

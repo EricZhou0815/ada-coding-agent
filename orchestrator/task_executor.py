@@ -1,65 +1,64 @@
-from typing import Dict, List
+from typing import List, Dict
+from agents.base_agent import BaseAgent
 
-class AtomicTaskExecutor:
+class PipelineOrchestrator:
     """
-    Orchestrates the execution of a single atomic task by coordinating the CodingAgent 
-    and the ValidationAgent in a feedback loop.
+    Executes a chain of Agents dynamically.
+    Instead of hardcoding agents, it passes context through a pipeline and retries based on failures.
     """
-
-    def __init__(self, coding_agent, validation_agent, repo_path: str, max_iterations: int = 25):
+    def __init__(self, agents: List[BaseAgent], max_retries: int = 5):
         """
-        Initializes the Task Executor.
-
+        Initializes the PipelineOrchestrator.
+        
         Args:
-            coding_agent (CodingAgent): The AI agent responsible for solving the task.
-            validation_agent (ValidationAgent): The agent responsible for verifying code changes.
-            repo_path (str): The filesystem path to the isolated sandbox or target repository.
-            max_iterations (int, optional): The maximum number of retry loops allowed if validation fails. Defaults to 25.
+            agents (List[BaseAgent]): An ordered list of agents to execute.
+            max_retries (int): Maximum number of pipeline pipeline loops before failing.
         """
-        self.coding_agent = coding_agent
-        self.validation_agent = validation_agent
-        self.repo_path = repo_path
-        self.max_iterations = max_iterations
+        self.agents = agents
+        self.max_retries = max_retries
 
-    def execute_task(self, atomic_task: Dict, completed_tasks: List[str]) -> bool:
+    def execute_task(self, task: Dict, repo_path: str, completed_tasks: List[str] = None) -> bool:
         """
-        Runs the full execution block for a single task until validation passes or iterations run out.
-
+        Executes the agent pipeline for the given task.
+        
         Args:
-            atomic_task (Dict): The task specifications (title, description, criteria).
-            completed_tasks (List[str]): Context array of previously finished tasks.
-
+            task (Dict): The atomic task dictionary.
+            repo_path (str): Path to isolated workspace.
+            completed_tasks (List[str]): List of previous completed task IDs.
+            
         Returns:
-            bool: True if the task successfully passed validation.
-
-        Raises:
-            RuntimeError: If the task exceeds the maximum number of retry iterations.
+            bool: True if the pipeline finished successfully, False if max_retries hit.
         """
-        iteration_count = 0
-        validation_feedback = []
+        retries = 0
+        context = {
+            "completed_tasks": completed_tasks or []
+        }
 
-        while True:
-            iteration_count += 1
-            if iteration_count > self.max_iterations:
-                raise RuntimeError(
-                    f"Ada's task {atomic_task['task_id']} exceeded max iterations ({self.max_iterations})"
-                )
+        while retries < self.max_retries:
+            pipeline_success = True
+            
+            # Run through the pipeline of agents sequentially
+            for agent in self.agents:
+                print(f"[{agent.name}] Starting execution...")
+                result = agent.run(task, repo_path, context)
+                
+                # Merge any new context/knowledge discovered by the agent
+                if result.context_updates:
+                    context.update(result.context_updates)
 
-            # Run Ada coding agent
-            self.coding_agent.run(
-                atomic_task=atomic_task,
-                repo_path=self.repo_path,
-                completed_tasks=completed_tasks,
-                validation_feedback=validation_feedback
-            )
-
-            # Validate repo after Ada's execution
-            validation_result = self.validation_agent.validate(self.repo_path, atomic_task)
-
-            if validation_result["passed"]:
-                print(f"Ada completed task {atomic_task['task_id']} successfully.")
+                if not result.success:
+                    print(f"[{agent.name}] Failed. Triggering pipeline retry cycle.")
+                    pipeline_success = False
+                    break # Stop the pipeline, start from the beginning with new context
+                    
+            if pipeline_success:
+                print("Pipeline completed successfully!")
+                if task.get("task_id") and isinstance(completed_tasks, list):
+                    completed_tasks.append(task["task_id"])
                 return True
-
-            # Feedback loop to Ada
-            validation_feedback = validation_result["feedback"]
-            print(f"Validation failed for task {atomic_task['task_id']}, sending feedback to Ada.")
+                
+            retries += 1
+            print(f"[Orchestrator] Retry cycle {retries}/{self.max_retries}")
+            
+        print(f"Pipeline failed after {self.max_retries} retries.")
+        return False

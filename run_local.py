@@ -14,7 +14,7 @@ from agents.coding_agent import CodingAgent
 from agents.validation_agent import ValidationAgent
 from config import Config
 from tools.tools import Tools
-from orchestrator.task_executor import AtomicTaskExecutor
+from orchestrator.task_executor import PipelineOrchestrator
 
 
 def main():
@@ -60,11 +60,10 @@ def main():
     llm_client = Config.get_llm_client()
     coding_agent = CodingAgent(llm_client, tools)
     validation_agent = ValidationAgent(llm_client, tools)
-    executor = AtomicTaskExecutor(
-        coding_agent, 
-        validation_agent, 
-        repo_path, 
-        max_iterations=25
+    agents_pipeline = [coding_agent, validation_agent]
+    executor = PipelineOrchestrator(
+        agents_pipeline, 
+        max_retries=25
     )
 
     # Execute task
@@ -72,7 +71,7 @@ def main():
     try:
         print("Starting Ada's execution...")
         print("-" * 60)
-        executor.execute_task(task, completed_tasks)
+        executor.execute_task(task, repo_path, completed_tasks)
         print("-" * 60)
         print("\n✅ Task completed successfully!")
     except Exception as e:

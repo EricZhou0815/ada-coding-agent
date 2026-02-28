@@ -1,7 +1,8 @@
 from typing import Dict
 import json
+from agents.base_agent import BaseAgent, AgentResult
 
-class ValidationAgent:
+class ValidationAgent(BaseAgent):
     """
     Ada's validation agent.
     Checks rule enforcement and verifies acceptance criteria autonomously using an LLM.
@@ -15,26 +16,26 @@ class ValidationAgent:
             llm_client (Any): An instance of an LLM client (e.g., LLMClient, MockLLMClient) capable of tool calling.
             tools (Any): An instance of a tools class (e.g., Tools, SandboxedTools) providing callable methods.
         """
-        self.llm = llm_client
-        self.tools = tools
+        super().__init__("Validator", llm_client, tools)
 
-    def validate(self, repo_path: str, task: Dict = None) -> Dict:
+    def run(self, task: Dict, repo_path: str, context: Dict) -> AgentResult:
         """
         Validates the state of the codebase against acceptance criteria using the LLM.
 
         Args:
+            task (Dict): The dictionary containing the atomic task definition.
             repo_path (str): The path to the repository being evaluated.
-            task (Dict, optional): The dictionary containing the atomic task definition.
+            context (Dict): the shared pipeline context.
 
         Returns:
-            Dict: Result mapping containing a `passed` boolean and a `feedback` list.
+            AgentResult: Result mapping containing success boolean and feedback array.
         """
         task = task or {}
         criteria = task.get("acceptance_criteria", [])
 
         if not criteria:
             # If no explicit criteria, we default past validation. 
-            return {"passed": True, "feedback": []}
+            return AgentResult(success=True, output="No criteria specified")
 
         self.llm.reset_conversation()
         prompt = self._build_prompt(task, repo_path, criteria)
@@ -72,9 +73,17 @@ class ValidationAgent:
 
         if tool_call_count >= max_tool_calls:
             feedback.append("Validator reached maximum iterations and failed to conclude.")
-            return {"passed": False, "feedback": feedback}
+            return AgentResult(
+                success=False,
+                output=feedback,
+                context_updates={"validation_feedback": feedback}
+            )
 
-        return {"passed": passed, "feedback": feedback}
+        return AgentResult(
+            success=passed, 
+            output=feedback if not passed else "All criteria met.",
+            context_updates={"validation_feedback": feedback} if not passed else {}
+        )
 
     def _execute_tool(self, function_call) -> Dict:
         """

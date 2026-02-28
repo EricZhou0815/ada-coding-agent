@@ -27,9 +27,9 @@ def test_validation_agent_init(mock_llm, mock_tools):
 
 def test_validate_no_criteria(mock_llm, mock_tools):
     agent = ValidationAgent(mock_llm, mock_tools)
-    result = agent.validate("/repo/path", task={})
-    assert result["passed"] is True
-    assert result["feedback"] == []
+    result = agent.run(task={}, repo_path="/repo/path", context={})
+    assert result.success is True
+    assert result.output == "No criteria specified"
     mock_llm.generate.assert_not_called()
 
 def test_validate_success_pass(mock_llm, mock_tools):
@@ -39,8 +39,8 @@ def test_validate_success_pass(mock_llm, mock_tools):
         "function_call": None
     }
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.validate("/repo/path", task)
-    assert result["passed"] is True
+    result = agent.run(task, "/repo/path", {})
+    assert result.success is True
 
 def test_validate_failure(mock_llm, mock_tools):
     agent = ValidationAgent(mock_llm, mock_tools)
@@ -49,9 +49,9 @@ def test_validate_failure(mock_llm, mock_tools):
         "function_call": None
     }
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.validate("/repo/path", task)
-    assert result["passed"] is False
-    assert "I noticed an issue" in result["feedback"][0]
+    result = agent.run(task, "/repo/path", {})
+    assert result.success is False
+    assert "I noticed an issue" in result.output[0]
 
 def test_validate_tool_call(mock_llm, mock_tools):
     agent = ValidationAgent(mock_llm, mock_tools)
@@ -61,10 +61,10 @@ def test_validate_tool_call(mock_llm, mock_tools):
         {"content": "PASS", "function_call": None}
     ]
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.validate("/repo/path", task)
+    result = agent.run(task, "/repo/path", {})
     
     assert mock_tools.dummy_tool.call_count == 1
-    assert result["passed"] is True
+    assert result.success is True
 
 def test_validate_max_iterations(mock_llm, mock_tools):
     agent = ValidationAgent(mock_llm, mock_tools)
@@ -72,8 +72,8 @@ def test_validate_max_iterations(mock_llm, mock_tools):
     mock_llm.generate.return_value = {"content": "", "function_call": MockFunctionCall("dummy_tool", '{"arg": "val"}')}
     
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.validate("/repo/path", task)
+    result = agent.run(task, "/repo/path", {})
     
-    assert result["passed"] is False
-    assert "maximum iterations" in result["feedback"][0]
+    assert result.success is False
+    assert "maximum iterations" in result.output[0]
     assert mock_tools.dummy_tool.call_count == 5

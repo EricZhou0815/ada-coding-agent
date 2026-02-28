@@ -1,7 +1,8 @@
 from typing import List, Dict
 import json
+from agents.base_agent import BaseAgent, AgentResult
 
-class CodingAgent:
+class CodingAgent(BaseAgent):
     """
     Ada, the autonomous LLM coding agent.
     Fully self-directed; Python does not control internal loops.
@@ -15,12 +16,10 @@ class CodingAgent:
             llm_client (Any): An instance of an LLM client (e.g., LLMClient, MockLLMClient) capable of tool calling.
             tools (Any): An instance of a tools class (e.g., Tools, SandboxedTools) providing callable methods.
         """
-        self.llm = llm_client
-        self.tools = tools
+        super().__init__("Coder", llm_client, tools)
         self.finished = False
 
-    def run(self, atomic_task: Dict, repo_path: str,
-            completed_tasks: List[str], validation_feedback: List[str] = None):
+    def run(self, task: Dict, repo_path: str, context: Dict) -> AgentResult:
         """
         Executes an atomic task autonomously within the given repository.
 
@@ -36,7 +35,10 @@ class CodingAgent:
         self.finished = False
         self.llm.reset_conversation()
         
-        prompt = self._build_prompt(atomic_task, repo_path, completed_tasks, validation_feedback)
+        completed_tasks = context.get("completed_tasks", [])
+        validation_feedback = context.get("validation_feedback", [])
+        
+        prompt = self._build_prompt(task, repo_path, completed_tasks, validation_feedback)
         
         # Run Ada's reasoning loop
         max_tool_calls = 10
@@ -63,6 +65,8 @@ class CodingAgent:
         if tool_call_count >= max_tool_calls:
             print(f"Ada: Reached maximum tool calls ({max_tool_calls}), completing task.")
             self.finished = True
+            
+        return AgentResult(success=True, output="Coding phase completed.")
 
     def _execute_tool(self, function_call) -> Dict:
         """
