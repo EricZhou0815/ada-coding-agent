@@ -138,23 +138,58 @@ pip install -r requirements.txt
 cp env.example .env
 ```
 
-Open `.env` and fill in the required values:
+#### LLM Keys
+
+Ada auto-detects your provider based on which key is present. Groq is recommended — it's free and extremely fast.
 
 ```bash
-# LLM — Groq is recommended (fast and free tier available)
+# Groq (recommended) — https://console.groq.com/keys
 GROQ_API_KEY=gsk_your_key_here
 
-# Required only for run_sdlc.py (PR creation)
-GITHUB_TOKEN=ghp_your_personal_access_token
+# OpenAI (optional fallback)
+OPENAI_API_KEY=sk_your_key_here
 ```
 
-Ada auto-detects your LLM provider — Groq takes priority over OpenAI. Force a specific one:
+You can force a specific provider regardless of which keys are present:
 
 ```bash
 LLM_PROVIDER=openai   # or: groq | mock
 ```
 
-### 3. (Optional) Build the Docker image
+#### GitHub Token (required for `run_sdlc.py` only)
+
+`GITHUB_TOKEN` is a **Personal Access Token (PAT)** — a scoped API key that lets Ada push branches and open Pull Requests on your behalf via the GitHub REST API.
+
+**How to get one:**
+
+1. Go to **[github.com/settings/tokens](https://github.com/settings/tokens)**
+2. Click **"Generate new token (classic)"**
+3. Give it a note like `Ada AI Agent` and choose an expiration
+4. Under **Scopes**, check only ✅ **`repo`** (full control of repositories)
+5. Click **"Generate token"** — copy it immediately, it is only shown once
+
+Add it to your `.env`:
+
+```bash
+GITHUB_TOKEN=ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456
+```
+
+> **Note:** `GITHUB_TOKEN` is only required when running `run_sdlc.py`. The `run_ada.py` and `run_epic.py` scripts work entirely without it.
+
+### 3. Add quality rules (optional but recommended)
+
+Create a `.rules/` directory in the project root and drop in `.md` or `.txt` files. Ada's `ValidationAgent` will enforce these standards on every task:
+
+```bash
+mkdir .rules
+
+# Example rules
+echo "Never hardcode secrets. Always use environment variables." > .rules/security.md
+echo "Every new API endpoint must return JSON with a 'status' field." > .rules/api.md
+echo "All new functions must have a docstring." > .rules/style.md
+```
+
+### 4. (Optional) Build the Docker image
 
 For fully containerised task isolation:
 

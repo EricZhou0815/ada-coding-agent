@@ -1,132 +1,99 @@
-# Ada: Autonomous LLM Coding Agent – Design Document
+# Ada: Autonomous AI Software Engineering Team — Design Document
 
-This document summarizes the **design principles, architecture, and decisions** for Ada, the autonomous AI software engineer. It is intended as a guideline for future AI coding agents, contributors, or developers.
-
----
-
-## **1. Project Philosophy**
-
-1. **Human-like AI Persona**  
-   - Ada is treated as a **human engineer**: autonomous, reasoning, and capable of planning.
-   - Prompts and instructions are written in a way that simulates human decision-making, rather than rigid step instructions.
-
-2. **Autonomy Over Hard-Coded Steps**  
-   - Internal loops, task breakdown, and execution decisions are **fully handled by the LLM**.
-   - Python orchestrator only provides isolation, execution limits, and sequential task order.
-
-3. **Future-Proof Design**  
-   - Ada is designed to leverage **LLM capability improvements** without changing the core framework.
-   - No logic should limit the agent’s potential to plan, reason, or code more efficiently as LLMs improve.
+Ada is an autonomous, multi-agent AI system that integrates directly into the software development lifecycle. Agents plan, code, validate, commit, and open pull requests — all without human intervention.
 
 ---
 
-## **2. Architecture Overview**
+## 1. Philosophy
 
-- **Tasks:** Atomic tasks (JSON) define the work to be done.  
-- **Orchestrator:** Runs each task in Docker isolation, sequentially.  
-- **Ada Agent:** LLM-powered coding agent with tools interface.  
-  - **Coding Agent:** Executes tasks autonomously.  
-  - **Validation Agent:** Checks code quality and rule compliance.  
-- **Tools:** Exposed sandbox functions (read/write/list/run/apply_patch).  
-- **Repo Snapshot:** Mountable repo for safe isolated execution.
+- **Human-like autonomy** — Ada is treated as a human engineer. Agents reason, plan, and self-correct rather than following rigid scripted steps.
+- **Separation of concerns** — Each agent has one job. Planning, coding, and validation are independent, composable units.
+- **Iterative quality** — Validation failures feed back into the coding loop automatically (up to 25 retries). Quality is enforced by rules, not by hardcoded checks.
+- **Future-proof** — As LLMs improve, Ada improves. No core orchestration logic needs to change.
 
 ---
 
-## **3. Core Modules & Responsibilities**
+## 2. Architecture
 
-### 3.1 Coding Agent
-- Receives one atomic task at a time.
-- Decides internally how to modify code.
-- Uses provided tools for filesystem and execution.
-- Handles **planning, coding, and self-verification**.
-- Output is structured in JSON, declaring `"finish"` when done.
+Ada is layered. Each layer delegates inward, with clear handoffs.
 
-### 3.2 Validation Agent
-- Validates code using **linting, tests, and custom rules**.
-- Returns feedback to coding agent for iterative improvement.
-- Ensures **atomic task completion criteria** are met.
-
-### 3.3 Tools Interface
-- Sandbox functions to allow code modifications:
-  - `read_file(path)`, `write_file(path, content)`, `delete_file(path)`, `list_files(directory)`
-  - `run_command(command)` – shell execution in isolated environment
-  - `apply_patch(patch_text)` – optional Git patch application
-- Enables **autonomy while restricting direct system control**.
-
-### 3.4 Orchestrator
-- Launches each atomic task in **Docker containers** for isolation.
-- Enforces **sequential task order**.
-- Limits **max iterations** per task to avoid infinite loops.
-- Manages **task dependencies** (future extension).
+```
+run_sdlc.py         → SDLCOrchestrator    (git lifecycle per story)
+run_epic.py         → EpicOrchestrator    (plan + sandbox loop per story)
+run_ada.py          → SandboxBackend      (single task execution)
+                       └─ PipelineOrchestrator
+                            ├─ CodingAgent
+                            └─ ValidationAgent
+```
 
 ---
 
-## **4. Design Principles**
+## 3. Agents
 
-1. **Autonomy:** Agent controls the task execution loop.  
-2. **Isolation:** Each task runs in a Docker container, sandboxed from the host and other tasks.  
-3. **Sequential Execution:** For MVP, tasks are executed in order; dependency logic is preserved.  
-4. **Feedback Loops:** Validation results are sent back to Ada for refinement.  
-5. **Extensibility:** New tools, validation rules, or LLM models can be added without changing orchestration.  
-6. **Future-Proof:** As LLMs improve, Ada can make smarter decisions without modifying orchestration code.  
+| Agent | Input | Output |
+|---|---|---|
+| `PlanningAgent` | User Story + codebase (read-only) | `tasks/<STORY-ID>/<task>.json` array |
+| `CodingAgent` | Atomic task + context | Modified files in sandbox |
+| `ValidationAgent` | `.rules/` quality gate files | `PASS` or `FAIL` + feedback |
 
----
-
-## **5. Task Execution Flow**
-
-1. Orchestrator receives an atomic task.
-2. Launches **Docker container** with repo snapshot mounted.
-3. Ada reads the task and previous completed tasks.
-4. Ada decides how to execute using the tools interface.
-5. Validation agent checks code changes.
-6. If validation fails:
-   - Feedback is returned to Ada.
-   - Ada iterates (max iteration limit enforced).
-7. If validation passes:
-   - Task marked complete.
-   - Orchestrator proceeds to next atomic task.
+All agents share a common `BaseAgent` interface with a single `run(task, repo_path, context)` method and return an `AgentResult(success, output, context_updates)`.
 
 ---
 
-## **6. Naming & Persona Guidelines**
+## 4. SDLC Flow
 
-- All agents, tools, and logs refer to the human-like persona **“Ada”**.
-- Prompts and outputs should maintain **human engineer style**:
-  - “I will implement X…”  
-  - “Here’s how I plan to modify the code…”  
-- Persona helps maintain **consistent behavior** across tasks and agents.
+```
+Human provides:
+  - GitHub repo URL
+  - stories/*.json  (User Story backlog)
 
----
-
-## **7. Guidelines for AI Coding Agents**
-
-1. Always treat the **task as atomic and sequential** unless orchestrator specifies parallel execution.  
-2. Use the **tools interface exclusively** to manipulate code and environment.  
-3. Only declare task completion when **all acceptance criteria are satisfied**.  
-4. Maintain internal reasoning loops inside the LLM; **Python orchestrator does not define task steps**.  
-5. Preserve human persona, logs, and structured output for clarity.  
-6. Ensure **max iteration limits** to avoid infinite loops.
-
----
-
-## **8. Future Enhancements**
-
-- Parallel task execution with dependency resolution.  
-- Full LLM integration with code suggestion, review, and commit.  
-- Advanced validation: CI/CD style linting, unit tests, type checks.  
-- Task prioritization and scheduling.  
-- Knowledge graph to track tasks, decisions, and repo history.
+SDLCOrchestrator:
+  1. Clone repo                         (GitManager)
+  2. For each story:
+     a. Create branch: ada/<STORY-ID>-<slug>
+     b. PlanningAgent → generates + saves atomic task JSONs
+     c. For each task (sequential):
+          SandboxBackend: copy repo → run [Coder → Validator] → merge back
+     d. git commit (structured message)
+     e. git push
+     f. GitHub API → open Pull Request  (GitHubClient + .ada/pr_template.md)
+```
 
 ---
 
-## **9. Summary**
+## 5. Key Design Decisions
 
-Ada provides a **humanized, autonomous, and future-proof LLM coding framework**.  
-This design ensures:
+| Decision | Rationale |
+|---|---|
+| One sandbox per task | Clean isolation; results merge back so next task sees updated code |
+| Tasks saved as JSON before execution | Inspectable, replayable, and hand-editable; decouples planning from execution |
+| ValidationAgent uses only `.rules/` | Task acceptance criteria belong to the Coder's loop; rules are team-wide quality gates |
+| GitHub token loaded from env | Never hardcoded; `GITHUB_TOKEN` in `.env` following the same pattern as LLM keys |
+| No third-party HTTP libs for GitHub API | `urllib.request` only — zero extra dependencies |
+| `slugify()` for branch names | Story titles become safe, human-readable branch names automatically |
 
-- Sequential atomic task execution  
-- Safe sandboxed execution  
-- Autonomy and feedback loops  
-- Easy integration with stronger LLMs in the future  
+---
 
-This document should guide **any AI agent** joining Ada in continuing or extending the project.
+## 6. Quality Gates
+
+Drop `.md` or `.txt` files into `.rules/` at the repo root. They are loaded by `LocalFolderRuleProvider` and injected into every `ValidationAgent` run. No code changes needed to add or modify rules.
+
+---
+
+## 7. Extension Points
+
+- **New agent** → implement `BaseAgent`, add to the pipeline list in `PipelineOrchestrator`
+- **New LLM provider** → add a client in `agents/llm_client.py`, register in `Config.get_llm_client()`
+- **New isolation backend** → implement `IsolationBackend`, drop it into `isolation/`
+- **New rule source** → implement `RuleProvider`, pass to `PipelineOrchestrator`
+- **Parallel stories** → `SDLCOrchestrator.run()` can be extended with `ThreadPoolExecutor` at the story level; tasks within a story must remain sequential
+
+---
+
+## 8. Future Enhancements
+
+- Parallel story execution (story-level concurrency via threads)
+- Dependency-aware task ordering (if task B depends on A, enforce ordering)
+- PR review agent (reads the diff, adds inline review comments)
+- CI/CD integration (trigger GitHub Actions on PR, read build status back into Ada)
+- Knowledge graph tracking past tasks, decisions, and repo history
