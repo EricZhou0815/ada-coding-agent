@@ -207,23 +207,31 @@ docker build -f docker/Dockerfile -t ada_agent_mvp .
 
 Ada includes a robust backend architecture (FastAPI + Celery + Redis + SQLite) designed for high-throughput, parallel execution of stories in completely isolated sandboxes. This is perfect for local multi-tasking or deploying as a scalable cloud service.
 
+#### The Easy Way: Docker Compose
+Boot up the entire factory (Redis, API Server, and Celery Workers) with a single command:
+```bash
+docker-compose up --build
+```
+*Your interactive API documentation is now live at: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)*
+
+<details>
+<summary><b>The Manual Way: Bare Metal Startup</b></summary>
+
 **1. Start the Message Broker (Redis)**
 ```bash
 docker run -d -p 6379:6379 redis
 ```
-
 **2. Start the API Server**
 ```bash
 uvicorn api.main:app --reload
 ```
-View the interactive API documentation at: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-
 **3. Start the Parallel Workers**
 ```bash
 celery -A worker.tasks worker --loglevel=info --concurrency=4
 ```
+</details>
 
-**4. Dispatch a Story**
+**Dispatch a Story**
 You can now send POST requests to the API. The workers will immediately pick them up, spin up ephemeral `/tmp` sandboxes, clone the repo, write the code, and open PRs completely in parallel.
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/execute" \

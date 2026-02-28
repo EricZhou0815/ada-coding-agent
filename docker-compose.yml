@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # 1. Message Broker (The Queue)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 2. Ada API Server (The Factory Intake)
+  api:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:80"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      # Use a persistent SQLite database mapped to a volume
+      - DATABASE_URL=sqlite:////app/data/ada_jobs.db
+    volumes:
+      - ada_data:/app/data
+      - ./.env:/app/.env  # Mount local .env for API keys
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # 3. Ada Celery Worker (The Factory Floor)
+  worker:
+    build: 
+      context: .
+      dockerfile: docker/Dockerfile
+    # Override the default API command to start the worker instead
+    command: ["celery", "-A", "worker.tasks", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:////app/data/ada_jobs.db
+      - ADA_TMP_DIR=/tmp/ada_runs
+    volumes:
+      - ada_data:/app/data
+      - ./.env:/app/.env   # API keys must be available to workers
+      # Mount the host machine's docker socket so the worker could theoretically spawn docker isolation backends
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+volumes:
+  ada_data:

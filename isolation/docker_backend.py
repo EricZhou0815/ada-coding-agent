@@ -108,11 +108,14 @@ class DockerBackend(IsolationBackend):
         
         # Forward API keys into the container
         for env_var in ("GROQ_API_KEY", "OPENAI_API_KEY"):
-            if os.getenv(env_var):
-                cmd.extend(["-e", f"{env_var}={os.getenv(env_var)}"])
+            val = os.getenv(env_var)
+            if val is not None:
+                cmd.extend(["-e", f"{env_var}={val}"])
         
         cmd.extend([
             self.image_name,
+            "python3",
+            "/app/docker/entrypoint.py",
             "/app/tasks/task.json",
             "/app/repo_snapshot"
         ])

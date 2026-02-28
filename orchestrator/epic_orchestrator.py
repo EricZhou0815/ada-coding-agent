@@ -137,7 +137,9 @@ class EpicOrchestrator:
         The sandbox isolates the work, then copies the result back to repo_path
         so the next task's sandbox starts from an up-to-date codebase.
         """
-        sandbox = SandboxBackend()
+        # Isolate the sandbox root inside the current workspace (parent of repo_path) to prevent global collisions
+        sandbox_root = os.path.join(os.path.dirname(os.path.abspath(repo_path)), ".sandbox")
+        sandbox = SandboxBackend(workspace_root=sandbox_root)
         try:
             sandbox.setup(task, repo_path)
             success = sandbox.execute(task, repo_path, completed_task_ids)
