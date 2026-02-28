@@ -1,18 +1,128 @@
-# Ada - Autonomous AI Software Engineer - built by AI
+# Ada - Autonomous AI Software Engineering Team
 
-Ada is an autonomous AI agent capable of executing complex programming tasks in an isolated environment. It uses LLMs (like Groq or OpenAI) to analyze prompts, explore codebases, and write solutions.
+Ada is a multi-agent AI system that integrates directly into the software development lifecycle. Given a GitHub repository URL and a backlog of User Stories, Ada autonomously clones the project, plans and writes the code, validates it against your quality rules, and opens a Pull Request — all without human intervention.
 
-It offers pluggable isolation backends (Sandbox and Docker) to run commands and make changes safely without affecting the host machine un-intendedly.
+---
 
 ## 🚀 Features
 
-- **LLM Support**: Built-in support for **Groq** via OpenAI compatibility (extremely fast!) and standard OpenAI models.
-- **Isolated Execution Backends**: 
-  - **Docker Backend**: Runs the agent and repository completely isolated inside a throw-away container.
-  - **Sandbox Backend**: Runs locally with directory containment.
-- **Agent Roles**: Split into specialized Coding and Validation agents.
-- **Automated Workspaces**: Safely copies repository snapshots and creates scratch directories.
-- **Mock Mode**: Fully functional mock LLM layer to test agent flows without consuming API credits.
+- **Full SDLC Integration**: Provide a GitHub URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
+- **Multi-Agent Pipeline**: Specialized agents — `PlanningAgent`, `CodingAgent`, `ValidationAgent` — each with a focused, autonomous role.
+- **Epic-Level Orchestration**: Feed a full Agile backlog and Ada breaks each story into atomic tasks, executes them sequentially, and persists the results.
+- **Global Quality Gates**: Drop `.md` or `.txt` files into `.rules/` to define engineering standards. The `ValidationAgent` enforces these on every task.
+- **Git & GitHub Integration**: Creates feature branches per story, commits with structured messages, pushes, and opens PRs using a configurable template.
+- **Isolated Sandbox Execution**: Each task runs in its own isolated workspace, copied fresh from the current repo state. Results merge back sequentially.
+- **LLM Support**: Auto-detects **Groq** (recommended, extremely fast) or **OpenAI** from your environment keys.
+- **Observability**: Rich ANSI-coloured terminal output with agent thoughts, tool calls, byte-level result summaries, and retry explanations.
+- **Mock Mode**: Fully functional mock LLM layer for testing without consuming API credits.
+
+---
+
+## 🏛 Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  run_sdlc.py          Full SDLC:  URL + Stories → Clone → PR        │
+│  run_epic.py          Epic mode:  Stories → Plan → Execute          │
+│  run_ada.py           Task mode:  Single task JSON → Execute        │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────────────┐
+│  SDLCOrchestrator     (orchestrator/sdlc_orchestrator.py)           │
+│                                                                     │
+│  1. GitManager.clone(url)             → workspace/repo/             │
+│  2. For each story:                                                  │
+│     a. GitManager.create_branch()     → ada/<story-id>-<slug>       │
+│     b. EpicOrchestrator.execute()     → plan + sandboxed execution  │
+│     c. GitManager.commit() + push()   → structured commit message   │
+│     d. GitHubClient.create_pr()       → PR from template            │
+└─────────────────────────────────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────────────┐
+│  EpicOrchestrator     (orchestrator/epic_orchestrator.py)           │
+│                                                                     │
+│  Per story:                                                          │
+│  1. PlanningAgent scans repo → generates [T1, T2, T3] as JSON       │
+│  2. Saves tasks to  tasks/<STORY-ID>/<task_id>.json                 │
+│  3. Runs each task sequentially inside a fresh SandboxBackend       │
+└─────────────────────────────────────────────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────────────────┐
+│  SandboxBackend    (isolation/sandbox.py)   [per task]              │
+│                                                                     │
+│  • Copies repo → .ada_sandbox/task_<id>/repo                       │
+│  • Runs PipelineOrchestrator  [CodingAgent → ValidationAgent]       │
+│  • Copies results back to repo (so next task sees updated code)     │
+└─────────────────────────────────────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────────┐
+              │                                  │
+┌─────────────▼──────────────┐     ┌────────────▼───────────────────┐
+│  CodingAgent               │     │  ValidationAgent               │
+│  agents/coding_agent.py    │     │  agents/validation_agent.py    │
+│                            │     │                                │
+│  • Reasons with LLM        │     │  • Reads .rules/ quality gates │
+│  • Writes and edits files  │     │  • Outputs PASS or FAIL        │
+│  • Runs verification cmds  │     │  • Feeds back to CodingAgent   │
+│  • Declares "finish"       │     │    for up to 25 retry cycles   │
+└────────────────────────────┘     └────────────────────────────────┘
+```
+
+### Agent Responsibilities
+
+| Agent | Role |
+|---|---|
+| `PlanningAgent` | Reads the codebase and translates a User Story into an ordered list of atomic tasks |
+| `CodingAgent` | Autonomously writes code, runs commands, and verifies changes locally |
+| `ValidationAgent` | Scans the codebase against `.rules/` quality gates; outputs `PASS` or `FAIL` |
+
+### Orchestration Layers
+
+| Orchestrator | Scope | Entry Point |
+|---|---|---|
+| `SDLCOrchestrator` | Full lifecycle: git → agents → PR | `run_sdlc.py` |
+| `EpicOrchestrator` | Story backlog: plan → persist tasks → sandbox loop | `run_epic.py` |
+| `PipelineOrchestrator` | Single task: agent pipeline with retry | internal |
+| `SandboxBackend` | Filesystem isolation per task | internal |
+
+### Per-Story Git Lifecycle
+
+```
+For each User Story:
+
+  1.  git checkout -b ada/STORY-1-password-reset
+
+  2.  PlanningAgent scans codebase
+      → saves tasks/STORY-1/STORY1-T1.json, STORY1-T2.json ...
+
+  3.  For each task (sequential):
+        SandboxBackend isolates → CodingAgent codes → ValidationAgent gates
+        → merge results back to branch working tree
+
+  4.  git add . && git commit -m "feat(STORY-1): Add password reset via email
+                                  - ✅ User can request reset link ..."
+
+  5.  git push origin ada/STORY-1-password-reset
+
+  6.  GitHub API → create PR
+        Title:  "[Ada] STORY-1: Add password reset via email"
+        Body:   filled from .ada/pr_template.md
+        Base:   main (configurable)
+        Draft:  if story was only partially successful
+```
+
+### Global Quality Rules
+
+Drop `.md` or `.txt` files into `.rules/` to define project-wide engineering standards. These are loaded at runtime by `LocalFolderRuleProvider` and injected into every `ValidationAgent` run.
+
+```
+.rules/
+  code_standard.md       ←  "Never hardcode secrets. Always use env vars."
+  api_conventions.md     ←  "All endpoints must return JSON with a status field."
+  testing_policy.md      ←  "Every new endpoint must have at least one unit test."
+```
+
+---
 
 ## 🛠 Setup
 
@@ -22,34 +132,31 @@ It offers pluggable isolation backends (Sandbox and Docker) to run commands and 
 pip install -r requirements.txt
 ```
 
-### 2. Configure API Keys
-
-Copy the example environment configuration:
+### 2. Configure environment variables
 
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
-Open `.env` and fill in your API key. 
-> **Tip:** We heavily recommend using [Groq](https://console.groq.com/keys) as it is set as the default provider and offers incredible iteration speeds.
-
-### Configuration / LLM Provider
-Ada uses a centralized configuration system (`config.py`). By default, it auto-detects your provider based on your API keys (`GROQ_API_KEY` prioritizes over `OPENAI_API_KEY`). 
-
-You can explicitly force a provider without removing keys by setting the `LLM_PROVIDER` variable in your `.env` or shell:
+Open `.env` and fill in the required values:
 
 ```bash
-# Force OpenAI even if Groq key is present
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-yourkey...
-# GROQ_API_KEY=gsk_yourkey...
+# LLM — Groq is recommended (fast and free tier available)
+GROQ_API_KEY=gsk_your_key_here
+
+# Required only for run_sdlc.py (PR creation)
+GITHUB_TOKEN=ghp_your_personal_access_token
 ```
 
-Valid `LLM_PROVIDER` values are: `groq`, `openai`, or `mock`.
+Ada auto-detects your LLM provider — Groq takes priority over OpenAI. Force a specific one:
 
-### 3. Build the Docker Image (If using Docker backend)
+```bash
+LLM_PROVIDER=openai   # or: groq | mock
+```
 
-If you plan to use isolated container execution, build the worker image:
+### 3. (Optional) Build the Docker image
+
+For fully containerised task isolation:
 
 ```bash
 docker build -f docker/Dockerfile -t ada_agent_mvp .
@@ -59,75 +166,155 @@ docker build -f docker/Dockerfile -t ada_agent_mvp .
 
 ## 💻 Usage
 
-Ada is executed using the unified runner `run_ada.py`. You provide a task description (JSON) and a codebase path.
+### Full SDLC Mode — Clone, code, commit, and open PRs
 
-### Basic Execution (Sandbox)
 ```bash
-python3 run_ada.py tasks/example_task.json repo_snapshot
+python3 run_sdlc.py \
+  --repo https://github.com/owner/repo \
+  --stories stories/epic_backlog.json \
+  --base-branch main \
+  --workspace .ada_workspace
 ```
 
-### Isolated Execution (Docker)
+Ada will:
+1. Clone the repository into `.ada_workspace/repo/`
+2. For each story: create a feature branch → plan → code → validate → commit → push → open PR
+
+### Epic Mode — Run a full story backlog against a local repo
+
 ```bash
-python3 run_ada.py tasks/example_task.json repo_snapshot --backend docker
+python3 run_epic.py stories/epic_backlog.json repo_snapshot
 ```
 
-*(Note: ensure your shell environment has loaded your `.env` variables before running so `run_ada.py` can pass them!)*
+Ada will plan each story into atomic tasks (saved to `tasks/<STORY-ID>/`), then execute them sequentially in isolated sandboxes.
 
-### Test run with Mock API
-Don't want to use real LLM tokens while debugging the runner infrastructure? Use `--mock`:
+### Task Mode — Run a single atomic task
 
 ```bash
+# Sandbox (local)
+python3 run_ada.py tasks/task2_register.json repo_snapshot
+
+# Docker isolation
+python3 run_ada.py tasks/task2_register.json repo_snapshot --backend docker
+
+# Mock LLM (no API credits)
 python3 run_ada.py tasks/example_task.json repo_snapshot --mock
+```
+
+---
+
+## 📝 Input Formats
+
+### User Story (`stories/*.json`)
+
+Used by `run_sdlc.py` and `run_epic.py`. Can be a single object or an array:
+
+```json
+[
+  {
+    "story_id": "STORY-1",
+    "title": "As a user, I want to reset my password via email",
+    "description": "Users need a secure way to request a reset link and set a new password.",
+    "acceptance_criteria": [
+      "User can submit their email to request a reset link.",
+      "A secure, time-limited token is generated.",
+      "User can submit a new password using the valid token."
+    ]
+  }
+]
+```
+
+### Atomic Task (`tasks/*.json`)
+
+Used directly by `run_ada.py`, or auto-generated by the `PlanningAgent`:
+
+```json
+{
+  "task_id": "STORY1-T1",
+  "title": "Add /forgot-password endpoint",
+  "description": "Create a POST /forgot-password endpoint that accepts an email and generates a reset token.",
+  "dependencies": [],
+  "acceptance_criteria": [
+    "POST /forgot-password accepts JSON with an email field.",
+    "Returns 404 if the email is not registered.",
+    "Returns 200 and logs/emails a reset token on success."
+  ]
+}
 ```
 
 ---
 
 ## 🧪 Testing
 
-Ada comes with a comprehensive suite of isolated unit tests covering configurations, tool endpoints, agent loops, and orchestrators. 
-
-To execute the test suite, ensure you have the `pytest` dependency installed, and run:
 ```bash
 python3 -m pytest tests/
 ```
 
-### Coverage Reports
-To execute the suite and return a terminal coverage matrix highlighting missed source lines:
+With coverage:
+
 ```bash
-pip install pytest-cov coverage
 python3 -m pytest --cov --cov-report=term-missing tests/
 ```
 
 ---
 
-## 📝 Writing Tasks
+## 📁 Project Structure
 
-Tasks are JSON files containing instructions and acceptance criteria. You can find examples in the `/tasks` folder.
-
-**Example Task Format:**
-```json
-{
-  "task_id": "T1",
-  "title": "Add JWT authentication to login",
-  "description": "Update login endpoint to return signed JWT token upon successful authentication.",
-  "dependencies": [],
-  "acceptance_criteria": [
-    "Valid token allows access to protected routes",
-    "Requests without token return 401"
-  ]
-}
 ```
-
-## 🏗 Project Structure
-
-- `run_ada.py` - Primary CLI entry point.
-- `isolation/` - Logic for Docker and Sandbox execution environments.
-- `agents/` - LLM connection logic (`llm_client.py`), Coding, and Validation agents.
-- `tools/` - Sandbox tools offered to the LLM via function-calling (file reading, writing, terminal).
-- `orchestrator/` - Logic that coordinates agents and tool execution.
-- `docker/` - Docker deployment configuration and entrypoint context for isolated runs.
-- `tasks/` - Library of JSON tasks to orchestrate.
+ada/
+├── run_sdlc.py                   # Full SDLC runner: clone → code → PR
+├── run_epic.py                   # Story/backlog runner
+├── run_ada.py                    # Single task runner
+├── config.py                     # LLM provider auto-detection
+│
+├── agents/
+│   ├── base_agent.py             # BaseAgent interface + AgentResult type
+│   ├── planning_agent.py         # User Story → ordered atomic task JSON
+│   ├── coding_agent.py           # Autonomous code writing + verification
+│   ├── validation_agent.py       # .rules/ quality gate enforcement
+│   ├── llm_client.py             # Groq/OpenAI client wrapper
+│   └── mock_llm_client.py        # Deterministic mock for unit tests
+│
+├── orchestrator/
+│   ├── sdlc_orchestrator.py      # Git lifecycle wrapper around EpicOrchestrator
+│   ├── epic_orchestrator.py      # Story-level: plan tasks → sequential sandboxes
+│   ├── task_executor.py          # Task-level: agent pipeline + retry loop
+│   └── rule_provider.py          # Loads .rules/ quality gate files from disk
+│
+├── tools/
+│   ├── tools.py                  # File I/O, shell, and codebase search tools
+│   ├── git_manager.py            # clone, branch, commit, push wrappers
+│   └── github_client.py          # GitHub REST API: create PR, parse URLs
+│
+├── isolation/
+│   ├── sandbox.py                # Filesystem-isolated sandbox + SandboxedTools
+│   └── backend.py                # Abstract isolation backend interface
+│
+├── .rules/                       # Global quality gate rule files
+│   └── code_standard.md
+│
+├── .ada/                         # Ada configuration and templates
+│   └── pr_template.md            # PR body template for GitHub PRs
+│
+├── stories/                      # User story definitions
+│   ├── epic_backlog.json         # Example multi-story backlog
+│   └── example_story.json        # Single story example
+│
+├── tasks/                        # Atomic task JSON files
+│   ├── task2_register.json       # Hand-written examples
+│   └── <STORY-ID>/               # Auto-generated by PlanningAgent
+│       └── <task_id>.json
+│
+├── docker/                       # Docker isolation backend
+│   ├── Dockerfile
+│   └── entrypoint.py
+│
+├── design_doc/
+│   └── design.md                 # Architecture and design principles
+│
+└── tests/                        # pytest unit test suite
+```
 
 ---
 
-**Happy Coding!** Let Ada write your boilerplate.
+**Happy Coding!** Point Ada at your GitHub repo, hand it a backlog, and go get a coffee. ☕
