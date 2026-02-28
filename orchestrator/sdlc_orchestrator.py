@@ -12,6 +12,7 @@ Workflow per story:
 """
 
 import os
+import shutil
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -71,7 +72,7 @@ class SDLCOrchestrator:
     # Public interface
     # ─────────────────────────────────────────────────────────────────────────
 
-    def run(self, stories: List[Dict], workspace_dir: str) -> bool:
+    def run(self, stories: List[Dict], workspace_dir: str, clean_workspace: bool = False) -> bool:
         """
         Executes the full SDLC for a list of User Stories.
 
@@ -82,10 +83,14 @@ class SDLCOrchestrator:
              b. Execute all story tasks via EpicOrchestrator
              c. Commit + push changes
              d. Open a PR on GitHub
+          3. Clean up workspace on success (or if clean_workspace is True)
 
         Args:
             stories: List of user story dicts.
             workspace_dir: Local directory to use as the Ada workspace.
+            clean_workspace: If True, always clean up workspace (even on failure).
+                             If False (default), clean on success and keep on failure
+                             for debugging.
 
         Returns:
             True if all stories processed without unrecoverable failure.
@@ -162,7 +167,43 @@ class SDLCOrchestrator:
                 # Non-fatal — code is already pushed
                 logger.warning("SDLCOrchestrator", "Branch pushed but PR was not created. Open manually.")
 
+        # ── Workspace cleanup ─────────────────────────────────────────────
+        self._cleanup_workspace(workspace, all_success, clean_workspace)
+
         return all_success
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Workspace lifecycle
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _cleanup_workspace(self, workspace: Path, success: bool, force: bool) -> None:
+        """
+        Manages workspace cleanup after an SDLC run.
+
+        Policy:
+          - On success: always clean up (workspace is no longer needed).
+          - On failure: keep for debugging, unless force=True (--clean flag).
+        """
+        if not workspace.exists():
+            return
+
+        should_clean = success or force
+
+        if should_clean:
+            logger.info("SDLCOrchestrator", f"🧹 Cleaning up workspace: {workspace}")
+            try:
+                shutil.rmtree(workspace)
+            except Exception as e:
+                logger.warning("SDLCOrchestrator", f"Failed to clean workspace: {e}")
+        else:
+            logger.info(
+                "SDLCOrchestrator",
+                f"🔍 Workspace preserved for debugging: {workspace}"
+            )
+            logger.info(
+                "SDLCOrchestrator",
+                "   Re-run with --clean to force cleanup, or delete manually."
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Private helpers

@@ -55,6 +55,12 @@ def main():
         default=".ada_workspace",
         help="Local directory to use as Ada's working directory (default: .ada_workspace)."
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        default=False,
+        help="Force-clean the workspace after the run, even on failure (default: clean on success only)."
+    )
     args = parser.parse_args()
 
     # ── Load stories ──────────────────────────────────────────────────────────
@@ -100,7 +106,7 @@ def main():
         rule_providers=rule_providers
     )
 
-    success = orchestrator.run(stories, workspace_dir=args.workspace)
+    success = orchestrator.run(stories, workspace_dir=args.workspace, clean_workspace=args.clean)
 
     if success:
         logger.success("SDLC run complete! Pull Requests have been opened on GitHub.")

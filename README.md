@@ -36,6 +36,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 │     b. EpicOrchestrator.execute()     → plan + sandboxed execution  │
 │     c. GitManager.commit() + push()   → structured commit message   │
 │     d. GitHubClient.create_pr()       → PR from template            │
+│  3. Workspace cleanup                 → success: clean | fail: keep │
 └─────────────────────────────────────────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────────────┐
@@ -208,12 +209,40 @@ python3 run_sdlc.py \
   --repo https://github.com/owner/repo \
   --stories stories/epic_backlog.json \
   --base-branch main \
-  --workspace .ada_workspace
+  --workspace .ada_workspace \
+  --clean              # optional: force-clean workspace even on failure
 ```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--repo` | *(required)* | GitHub repository URL (HTTPS or SSH) |
+| `--stories` | *(required)* | Path to a JSON file with one or more User Stories |
+| `--base-branch` | `main` | Branch that PRs will target |
+| `--workspace` | `.ada_workspace` | Local directory for Ada's working files |
+| `--clean` | `false` | Force-clean workspace after run, even on failure |
 
 Ada will:
 1. Clone the repository into `.ada_workspace/repo/`
 2. For each story: create a feature branch → plan → code → validate → commit → push → open PR
+3. Clean up the workspace based on the outcome (see **Workspace Lifecycle** below)
+
+#### Workspace Lifecycle
+
+The `.ada_workspace/` directory holds the cloned repo and per-task sandbox copies. After a run completes, Ada manages cleanup automatically:
+
+| Outcome | Default behaviour | With `--clean` |
+|---|---|---|
+| ✅ All stories succeed | 🧹 Workspace **deleted** | 🧹 Workspace **deleted** |
+| ❌ Any story fails | 🔍 Workspace **preserved** for debugging | 🧹 Workspace **deleted** |
+
+When the workspace is preserved on failure, Ada logs the path so you can inspect the cloned repo, branches, and partial changes:
+
+```
+[SDLCOrchestrator] 🔍 Workspace preserved for debugging: /path/to/.ada_workspace
+[SDLCOrchestrator]    Re-run with --clean to force cleanup, or delete manually.
+```
+
+> **Note:** Per-task sandbox copies (inside `SandboxBackend`) are always cleaned up immediately after each task, regardless of success or failure. The workspace lifecycle above applies only to the top-level `.ada_workspace/` directory.
 
 ### Epic Mode — Run a full story backlog against a local repo
 
