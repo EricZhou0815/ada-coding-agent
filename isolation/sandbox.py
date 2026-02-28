@@ -78,7 +78,7 @@ class SandboxBackend(IsolationBackend):
             print(f"[Sandbox] Using {Config.get_llm_provider().capitalize()} LLM")
             
             coding_agent = CodingAgent(llm_client, tools)
-            validation_agent = ValidationAgent()
+            validation_agent = ValidationAgent(llm_client, tools)
             executor = AtomicTaskExecutor(
                 coding_agent,
                 validation_agent,

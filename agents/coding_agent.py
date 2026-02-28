@@ -118,6 +118,7 @@ Previously Completed Tasks: {completed_tasks}
 Validation Feedback: {validation_feedback if validation_feedback else "None"}
 
 Decide how to complete this task step by step. Use your provided tools to read the codebase, make changes, and verify them.
+CRITICAL: You MUST use the `run_command` tool to execute your code and verify it works locally before declaring 'finish'.
 When finished, include the word "finish" in your response.
 Act as a human engineer named Ada.
 """

@@ -29,7 +29,7 @@ def test_executor_success_first_try(mock_coding_agent, mock_validation_agent):
         completed_tasks=["T0"],
         validation_feedback=[]
     )
-    mock_validation_agent.validate.assert_called_once_with("/repo")
+    mock_validation_agent.validate.assert_called_once_with("/repo", task)
 
 def test_executor_success_with_retries(mock_coding_agent, mock_validation_agent):
     # Fails first, passes second

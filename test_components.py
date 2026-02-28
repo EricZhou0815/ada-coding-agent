@@ -26,8 +26,11 @@ def test_tools():
 
 def test_validation_agent():
     """Test ValidationAgent."""
-    validator = ValidationAgent()
-    result = validator.validate("repo_snapshot")
+    from agents.mock_llm_client import MockLLMClient
+    llm = MockLLMClient()
+    tools = Tools()
+    validator = ValidationAgent(llm, tools)
+    result = validator.validate("repo_snapshot", {"acceptance_criteria": ["Test criteria"]})
     print(f"✓ Validation agent works - Result: {result}")
 
 def main():

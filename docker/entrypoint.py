@@ -19,7 +19,7 @@ def main():
 
     llm_client = Config.get_llm_client()
     coding_agent = CodingAgent(llm_client, tools)
-    validation_agent = ValidationAgent()
+    validation_agent = ValidationAgent(llm_client, tools)
     executor = AtomicTaskExecutor(coding_agent, validation_agent, repo_path, max_iterations=25)
 
     with open(task_file) as f:

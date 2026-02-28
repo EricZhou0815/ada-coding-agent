@@ -54,7 +54,7 @@ class AtomicTaskExecutor:
             )
 
             # Validate repo after Ada's execution
-            validation_result = self.validation_agent.validate(self.repo_path)
+            validation_result = self.validation_agent.validate(self.repo_path, atomic_task)
 
             if validation_result["passed"]:
                 print(f"Ada completed task {atomic_task['task_id']} successfully.")
