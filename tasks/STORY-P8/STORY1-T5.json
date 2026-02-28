@@ -1,0 +1,12 @@
+{
+    "task_id": "STORY1-T5",
+    "title": "Implement the one-time migration script",
+    "description": "Create a script (migrate_to_sqlite.py) that reads existing JSON files and inserts their data into the SQLite database if they exist",
+    "dependencies": [
+        "STORY1-T4"
+    ],
+    "acceptance_criteria": [
+        "The creation of the migrate_to_sqlite.py script",
+        "The successful migration of data from JSON files to the SQLite database"
+    ]
+}

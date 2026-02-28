@@ -21,6 +21,9 @@ import sys
 import json
 import argparse
 
+from dotenv import load_dotenv
+load_dotenv()                      # Load .env into os.environ
+
 from config import Config
 from tools.tools import Tools
 from orchestrator.sdlc_orchestrator import SDLCOrchestrator

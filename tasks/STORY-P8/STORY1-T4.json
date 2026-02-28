@@ -1,0 +1,12 @@
+{
+    "task_id": "STORY1-T4",
+    "title": "Modify the MemoryManager to use the SQLite database",
+    "description": "Update the MemoryManager class to use the SQLite database instead of JSON files for storing and retrieving data",
+    "dependencies": [
+        "STORY1-T3"
+    ],
+    "acceptance_criteria": [
+        "The MemoryManager class uses the SQLite database for all data storage and retrieval",
+        "The existing interface of the MemoryManager class remains unchanged"
+    ]
+}

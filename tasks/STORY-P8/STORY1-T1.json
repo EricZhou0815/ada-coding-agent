@@ -1,0 +1,10 @@
+{
+    "task_id": "STORY1-T1",
+    "title": "Explore the current state of the repository",
+    "description": "Use search_codebase, list_files, and read_file to understand the existing codebase and identify areas that need modification",
+    "dependencies": [],
+    "acceptance_criteria": [
+        "A list of existing files and directories in the repository",
+        "Identification of the MemoryManager class and its methods"
+    ]
+}

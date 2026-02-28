@@ -1,0 +1,12 @@
+{
+    "task_id": "STORY1-T3",
+    "title": "Create the SQLite database file",
+    "description": "Create a new SQLite database file at memory/byte_soul.db and initialize the tables according to the schema",
+    "dependencies": [
+        "STORY1-T2"
+    ],
+    "acceptance_criteria": [
+        "The creation of the byte_soul.db file",
+        "The existence of the required tables in the database"
+    ]
+}

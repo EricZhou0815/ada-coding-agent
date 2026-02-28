@@ -1,15 +1,1 @@
-Security:
-- Never use hardcoded secrets or API keys.
-- Always use environment variables for sensitive information.
-- Use proper authentication and authorization mechanisms.
-- Sanitize all user inputs to prevent injection attacks.
-- Use prepared statements for database queries.
-- Implement proper error handling and logging.
-- Use HTTPS for all communication.
-- Use proper session management.
-- Use proper authentication and authorization mechanisms.
-- Sanitize all user inputs to prevent injection attacks.
-- Use prepared statements for database queries.
-- Implement proper error handling and logging.
-- Use HTTPS for all communication.
-- Use proper session management.
+Code should modulized and easy to extend or scale, easy to read, maintain, and debug. Use proper naming conventions and comments. Use proper error handling and logging. Use proper session management. Use proper design patterns. Use proper testing. Use proper documentation.

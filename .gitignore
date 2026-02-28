@@ -81,3 +81,4 @@ tasks/*.json
 *.temp
 temp/
 tmp/
+.ada_workspace/
