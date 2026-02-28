@@ -32,15 +32,14 @@ class ValidationAgent(BaseAgent):
             AgentResult: Result mapping containing success boolean and feedback array.
         """
         task = task or {}
-        criteria = task.get("acceptance_criteria", [])
         global_rules = context.get("global_rules", [])
 
-        if not criteria and not global_rules:
-            # If no explicit criteria and no global rules, we default past validation. 
-            return AgentResult(success=True, output="No criteria or rules specified")
+        if not global_rules:
+            # If no global rules, we default past validation. 
+            return AgentResult(success=True, output="No global quality rules specified.")
 
         self.llm.reset_conversation()
-        prompt = self._build_prompt(task, repo_path, criteria, global_rules)
+        prompt = self._build_prompt(task, repo_path, global_rules)
 
         max_tool_calls = 5
         tool_call_count = 0
@@ -72,7 +71,7 @@ class ValidationAgent(BaseAgent):
                     passed = False
                     finished = True
                 else:
-                    prompt = "Please finish your evaluation. Say 'PASS' if all criteria are met, or 'FAIL' if any are not met, then explain."
+                    prompt = "Please finish your evaluation. Say 'PASS' if all quality rules are met, or 'FAIL' if any are not met, then explain."
 
         if tool_call_count >= max_tool_calls:
             feedback.append("Validator reached maximum iterations and failed to conclude.")
@@ -84,7 +83,7 @@ class ValidationAgent(BaseAgent):
 
         return AgentResult(
             success=passed, 
-            output=feedback if not passed else "All criteria met.",
+            output=feedback if not passed else "All global quality rules met.",
             context_updates={"validation_feedback": feedback} if not passed else {}
         )
 
@@ -112,23 +111,22 @@ class ValidationAgent(BaseAgent):
             logger.tool_result(self.name, success=False)
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
-    def _build_prompt(self, task: Dict, repo_path: str, criteria: list, global_rules: list) -> str:
+    def _build_prompt(self, task: Dict, repo_path: str, global_rules: list) -> str:
         """
         Constructs the system prompt to instruct the Validation Agent.
         """
         rules_text = "\n".join(global_rules) if global_rules else "None specified."
         
         return f"""
-You are the autonomous Validation Agent. Your job is to verify if a software task was completed successfully.
+You are the autonomous Validation Agent. Your job is to verify if a software task was completed successfully by ensuring the Global Quality Rules are adhered to.
 
 Task Title: {task.get('title', 'Unknown')}
-Acceptance Criteria: {criteria}
 Global Quality Rules: {rules_text}
 
 Repo Path: {repo_path}
 
-Use your tools to read the code, list files, or run tests in the repository strictly to *verify* if both the task acceptance criteria and global quality rules are met. DO NOT write or edit code.
+Use your tools to read the code, list files, or run tests in the repository strictly to *verify* if the global quality rules are met. DO NOT write or edit code.
 
-If ALL criteria and quality rules are verified as met, respond with exactly "PASS". 
-If ANY criteria or rule is not met, respond with "FAIL" followed by a detailed list of feedback and why it failed.
+If ALL quality rules are verified as met, respond with exactly "PASS". 
+If ANY rule is not met, respond with "FAIL" followed by a detailed list of feedback and why it failed.
 """

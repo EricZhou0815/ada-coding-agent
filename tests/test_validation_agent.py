@@ -29,7 +29,7 @@ def test_validate_no_criteria(mock_llm, mock_tools):
     agent = ValidationAgent(mock_llm, mock_tools)
     result = agent.run(task={}, repo_path="/repo/path", context={})
     assert result.success is True
-    assert result.output == "No criteria or rules specified"
+    assert result.output == "No global quality rules specified."
     mock_llm.generate.assert_not_called()
 
 def test_validate_success_pass(mock_llm, mock_tools):
@@ -39,7 +39,7 @@ def test_validate_success_pass(mock_llm, mock_tools):
         "function_call": None
     }
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.run(task, "/repo/path", {})
+    result = agent.run(task, "/repo/path", {"global_rules": ["ensure test coverage"]})
     assert result.success is True
 
 def test_validate_failure(mock_llm, mock_tools):
@@ -49,7 +49,7 @@ def test_validate_failure(mock_llm, mock_tools):
         "function_call": None
     }
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.run(task, "/repo/path", {})
+    result = agent.run(task, "/repo/path", {"global_rules": ["ensure test coverage"]})
     assert result.success is False
     assert "I noticed an issue" in result.output[0]
 
@@ -61,7 +61,7 @@ def test_validate_tool_call(mock_llm, mock_tools):
         {"content": "PASS", "function_call": None}
     ]
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.run(task, "/repo/path", {})
+    result = agent.run(task, "/repo/path", {"global_rules": ["ensure test coverage"]})
     
     assert mock_tools.dummy_tool.call_count == 1
     assert result.success is True
@@ -72,7 +72,7 @@ def test_validate_max_iterations(mock_llm, mock_tools):
     mock_llm.generate.return_value = {"content": "", "function_call": MockFunctionCall("dummy_tool", '{"arg": "val"}')}
     
     task = {"title": "T1", "acceptance_criteria": ["C1"]}
-    result = agent.run(task, "/repo/path", {})
+    result = agent.run(task, "/repo/path", {"global_rules": ["ensure test coverage"]})
     
     assert result.success is False
     assert "maximum iterations" in result.output[0]

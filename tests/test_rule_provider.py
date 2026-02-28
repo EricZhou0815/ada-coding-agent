@@ -5,7 +5,7 @@ from orchestrator.rule_provider import LocalFolderRuleProvider
 @pytest.fixture
 def temp_rule_dir(tmp_path):
     # tmp_path is a pytest fixture that provides a temporary directory unique to the test invocation
-    rules_dir = tmp_path / ".ada_rules"
+    rules_dir = tmp_path / ".rules"
     rules_dir.mkdir()
     
     # Create some dummy rule files
@@ -35,6 +35,6 @@ def test_local_folder_rule_provider(temp_rule_dir):
 
 def test_local_folder_rule_provider_missing_dir(tmp_path):
     provider = LocalFolderRuleProvider()
-    # tmp_path does not have .ada_rules
+    # tmp_path does not have .rules
     rules = provider.get_rules(str(tmp_path))
     assert len(rules) == 0

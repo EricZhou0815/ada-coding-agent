@@ -21,7 +21,7 @@ class RuleProvider(ABC):
 class LocalFolderRuleProvider(RuleProvider):
     """
     Reads global rules from markdown or text files within a specific folder 
-    in the target repository (e.g., '.ada_rules').
+    in the target repository (e.g., '.rules').
     """
     def __init__(self, folder_name: str = "rules"):
         self.folder_name = folder_name
