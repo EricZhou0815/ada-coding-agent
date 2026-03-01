@@ -1,15 +1,15 @@
 # Ada: Autonomous AI Software Engineering Team — Design Document
 
-Ada is an autonomous, multi-agent AI system that integrates directly into the software development lifecycle. Agents plan, code, validate, commit, and open pull requests — all without human intervention.
+Ada is an autonomous AI system that integrates directly into the software development lifecycle. By treating the agent as a senior developer with full longitudinal autonomy, Ada plans, codes, self-corrects, and opens pull requests — all without human intervention.
 
 ---
 
 ## 1. Philosophy
 
-- **Human-like autonomy** — Ada is treated as a human engineer. Agents reason, plan, and self-correct rather than following rigid scripted steps.
-- **Separation of concerns** — Each agent has one job. Planning, coding, and validation are independent, composable units.
-- **Iterative quality** — Validation failures feed back into the coding loop automatically (up to 25 retries). Quality is enforced by rules, not by hardcoded checks.
-- **Future-proof** — As LLMs improve, Ada improves. No core orchestration logic needs to change.
+- **Long-Context Autonomy** — Ada is treated as a senior engineer. Instead of following small, brittle scripted tasks, Ada processes the entire User Story in a single, continuous execution window.
+- **Direct Execution** — As LLMs improve, pre-planning agents became a bottleneck. Ada now explores the codebase, formulates a plan, and executes it step-by-step within her internal reasoning loop.
+- **Isolated Self-Correction** — Coding failures feed back into the agent's context automatically. Quality is enforced by the agent's own internal verification tool-calling (running tests, reading files).
+- **Zero Friction** — Integration is seamless: GitHub URLs in, structured Pull Requests out.
 
 ---
 
@@ -18,12 +18,11 @@ Ada is an autonomous, multi-agent AI system that integrates directly into the so
 Ada is layered. Each layer delegates inward, with clear handoffs.
 
 ```
-run_sdlc.py         → SDLCOrchestrator    (git lifecycle per story)
-run_epic.py         → EpicOrchestrator    (plan + sandbox loop per story)
-run_ada.py          → SandboxBackend      (single task execution)
+run_sdlc.py         → SDLCOrchestrator      (VCS lifecycle per story)
+run_epic.py         → EpicOrchestrator      (sequential story execution)
+run_ada.py          → SandboxBackend        (single story execution)
                        └─ PipelineOrchestrator
-                            ├─ CodingAgent
-                            └─ ValidationAgent
+                            └─ CodingAgent  (Plan + Code loop)
 ```
 
 ---
@@ -32,29 +31,31 @@ run_ada.py          → SandboxBackend      (single task execution)
 
 | Agent | Input | Output |
 |---|---|---|
-| `PlanningAgent` | User Story + codebase (read-only) | `tasks/<STORY-ID>/<task>.json` array |
-| `CodingAgent` | Atomic task + context | Modified files in sandbox |
-| `ValidationAgent` | `.rules/` quality gate files | `PASS` or `FAIL` + feedback |
+| `CodingAgent` | User Story + repo access | Modified files + self-verified tests |
+| `ValidationAgent` | `.rules/` quality gate files | (Used in specialized/future audit layers) |
 
-All agents share a common `BaseAgent` interface with a single `run(task, repo_path, context)` method and return an `AgentResult(success, output, context_updates)`.
+All agents share a common `BaseAgent` interface with a single `run(story, repo_path, context)` method and return an `AgentResult(success, output, context_updates)`.
 
 ---
 
-## 4. SDLC Flow
+## 4. SDLC Flow (Direct Mode)
 
 ```
-Human provides:
+Input:
   - GitHub repo URL
-  - stories/*.json  (User Story backlog)
+  - stories.json (Full User Story backlog)
 
 SDLCOrchestrator:
   1. Clone repo                         (GitManager)
   2. For each story:
      a. Create branch: ada/<STORY-ID>-<slug>
-     b. PlanningAgent → generates + saves atomic task JSONs
-     c. For each task (sequential):
-          SandboxBackend: copy repo → run [Coder → Validator] → merge back
-     d. git commit (structured message)
+     b. SandboxBackend: copy repo → start fresh isolation
+     c. CodingAgent:
+          - Explore codebase
+          - Formulate implementation plan
+          - Execute code changes sequentially
+          - Run tests to verify work
+     d. git commit (structured message based on Acceptance Criteria)
      e. git push
      f. GitHub API → open Pull Request  (GitHubClient + .ada/pr_template.md)
 ```
@@ -65,35 +66,32 @@ SDLCOrchestrator:
 
 | Decision | Rationale |
 |---|---|
-| One sandbox per task | Clean isolation; results merge back so next task sees updated code |
-| Tasks saved as JSON before execution | Inspectable, replayable, and hand-editable; decouples planning from execution |
-| ValidationAgent uses only `.rules/` | Task acceptance criteria belong to the Coder's loop; rules are team-wide quality gates |
-| GitHub token loaded from env | Never hardcoded; `GITHUB_TOKEN` in `.env` following the same pattern as LLM keys |
-| No third-party HTTP libs for GitHub API | `urllib.request` only — zero extra dependencies |
-| `slugify()` for branch names | Story titles become safe, human-readable branch names automatically |
+| **Direct Story Mode** | Pre-generated task JSONs were fragile. Large context windows allow the agent to handle planning and execution in one fluent session. |
+| **Tool-Driven Verification** | The agent is instructed to write and run her own tests to verify changes before declaring a story "finished." |
+| **80+ Tool Call Limit** | Entire stories are complex. Expanding the reasoning limit ensures Ada can handle large, multi-file refactors. |
+| **Generalized VCS Webhooks** | Renamed to `VCSWebhooks` to support future providers (Bitbucket, GitLab) while keeping the same "Auto-Fix" logic. |
+| **Structured PR Template** | PRs aren't just code; they include checkboxes for acceptance criteria and a detailed list of modified files for reviewers. |
 
 ---
 
-## 6. Quality Gates
+## 6. Closed-Loop Development
 
-Drop `.md` or `.txt` files into `.rules/` at the repo root. They are loaded by `LocalFolderRuleProvider` and injected into every `ValidationAgent` run. No code changes needed to add or modify rules.
+Ada doesn't stop after the PR:
+- **CI/CD Auto-Fix**: Ada listens to VCS webhooks. If a CI pipeline fails, she fetches the runner logs, clones the exact commit state, fixes the bug, and pushes a patch.
+- **Human Feedback**: Reviewer comments on a PR trigger Ada to re-evaluate the code, apply the requested changes, and push updates autonomously.
 
 ---
 
 ## 7. Extension Points
 
-- **New agent** → implement `BaseAgent`, add to the pipeline list in `PipelineOrchestrator`
-- **New LLM provider** → add a client in `agents/llm_client.py`, register in `Config.get_llm_client()`
-- **New isolation backend** → implement `IsolationBackend`, drop it into `isolation/`
-- **New rule source** → implement `RuleProvider`, pass to `PipelineOrchestrator`
-- **Parallel stories** → `SDLCOrchestrator.run()` can be extended with `ThreadPoolExecutor` at the story level; tasks within a story must remain sequential
+- **New provider** → add a route in `api/webhooks/vcs.py` and a method in `GitHubClient` (or a more generic client).
+- **New LLM provider** → register a client in `Config.get_llm_client()`.
+- **Audit Layer** → re-integrate `ValidationAgent` into the `PipelineOrchestrator` to enforce specialized rulesets.
 
 ---
 
 ## 8. Future Enhancements
 
-- Parallel story execution (story-level concurrency via threads)
-- Dependency-aware task ordering (if task B depends on A, enforce ordering)
-- PR review agent (reads the diff, adds inline review comments)
-- CI/CD integration (trigger GitHub Actions on PR, read build status back into Ada)
-- Knowledge graph tracking past tasks, decisions, and repo history
+- **PR Review Agent**: A specialized agent that reviews other PRs or self-reviews before opening.
+- **Dependency Graphing**: Automated mapping of the code before implementation begins.
+- **Self-Healing Infrastructure**: Detecting deployment errors and reverting or fixing them.
