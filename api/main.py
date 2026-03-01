@@ -4,7 +4,10 @@ from uuid import uuid4
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Generator
+import redis
+import asyncio
+from fastapi.responses import StreamingResponse
 
 from api.database import SessionLocal, StoryJob, get_db
 from api.webhooks import vcs as vcs_webhooks
@@ -114,6 +117,28 @@ def get_job_status(job_id: str, db: SessionLocal = Depends(get_db)):
         "logs": logs,
         "created_at": str(job.created_at)
     }
+
+@app.get("/api/v1/jobs/{job_id}/stream")
+async def stream_job_logs(job_id: str):
+    """
+    SSE endpoint to stream live logs from Redis Pub/Sub.
+    """
+    def redis_event_generator():
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        r = redis.from_url(redis_url)
+        pubsub = r.pubsub()
+        pubsub.subscribe(f"logs:{job_id}")
+        
+        try:
+            for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = message["data"].decode("utf-8")
+                    yield f"data: {data}\n\n"
+        finally:
+            pubsub.unsubscribe(f"logs:{job_id}")
+            pubsub.close()
+
+    return StreamingResponse(redis_event_generator(), media_type="text/event-stream")
 
 @app.get("/health")
 def health_check():

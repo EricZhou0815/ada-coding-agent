@@ -33,15 +33,48 @@ export default function Home() {
     }
   }
 
+  // 1. Poll for general Status (SUCCESS/FAILED)
   useEffect(() => {
     if (!activeJob || ['SUCCESS', 'FAILED'].includes(activeJob.status)) return
 
     const interval = setInterval(async () => {
+      // Just fetch status to update Badge, not logs (SSE handles logs)
       const shouldContinue = await fetchJobStatus(activeJob.job_id)
       if (!shouldContinue) clearInterval(interval)
-    }, 2000)
+    }, 5000)
 
     return () => clearInterval(interval)
+  }, [activeJob?.job_id])
+
+  // 2. SSE for Live Logs
+  useEffect(() => {
+    if (!activeJob?.job_id || ['SUCCESS', 'FAILED'].includes(activeJob.status)) return
+
+    const eventSource = new EventSource(`${API_BASE}/api/v1/jobs/${activeJob.job_id}/stream`)
+
+    eventSource.onmessage = (event) => {
+      const newLog = JSON.parse(event.data)
+      setActiveJob(prev => {
+        if (!prev) return null
+        // Prevent duplicate logs if initial fetch already got some
+        const exists = prev.logs.some(l => l.timestamp === newLog.timestamp && l.message === newLog.message)
+        if (exists) return prev
+
+        return {
+          ...prev,
+          logs: [...prev.logs, newLog]
+        }
+      })
+    }
+
+    eventSource.onerror = (err) => {
+      console.error("SSE Error:", err)
+      eventSource.close()
+    }
+
+    return () => {
+      eventSource.close()
+    }
   }, [activeJob?.job_id])
 
   const handleDispatch = async (payload: ExecutionRequest) => {

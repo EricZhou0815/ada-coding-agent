@@ -21,10 +21,18 @@ celery_app.conf.update(
 )
 
 def _append_job_log(job_id, message):
-    """Utility to append logs to the DB."""
+    """Utility to append logs to the DB and publish to Redis."""
     from api.database import SessionLocal, StoryJob
     from datetime import datetime
+    import redis
     
+    timestamp = datetime.utcnow().isoformat()
+    log_entry = {
+        "timestamp": timestamp,
+        "message": message
+    }
+    
+    # 1. Update Database (Historical Persistence)
     db = SessionLocal()
     job = db.query(StoryJob).filter(StoryJob.id == job_id).first()
     if job:
@@ -32,13 +40,18 @@ def _append_job_log(job_id, message):
             logs = json.loads(job.logs) if job.logs else []
         except:
             logs = []
-        logs.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "message": message
-        })
+        logs.append(log_entry)
         job.logs = json.dumps(logs)
         db.commit()
     db.close()
+
+    # 2. Publish to Redis (Live Streaming)
+    try:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        r = redis.from_url(redis_url)
+        r.publish(f"logs:{job_id}", json.dumps(log_entry))
+    except Exception as e:
+        print(f"Failed to publish log to Redis: {e}")
     
 def _update_job_status(job_id, status):
     """Utility to update DB status."""
