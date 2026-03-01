@@ -114,6 +114,32 @@ npm run dev
 
 ---
 
+## 🚀 Scaling the Factory
+
+Ada is built to handle massive backlogs by horizontally scaling our distributed worker fleet.
+
+### 🏭 Horizontal Scaling (More Workers)
+To process multiple User Stories in parallel across different containers:
+```bash
+# Start the factory with 5 parallel workers
+docker-compose up -d --scale worker=5
+```
+*Each worker picks up stories independently from the Redis queue.*
+
+### ⚡ Tuning Concurrency (Per Worker)
+You can adjust how many stories a *single* worker container processes by modifying the `command` in `docker-compose.yml`:
+```yaml
+# inside docker-compose.yml
+command: ["celery", "-A", "worker.tasks", "worker", "--concurrency=4"]
+```
+*Higher concurrency requires more CPU and RAM per container.*
+
+### 🛰️ Distributed Monitoring
+- **Redis Queue**: All workers share the same Redis instance to pull jobs.
+- **SSE Logs**: Each worker streams logs to a unique Redis channel (`logs:<job_id>`), allowing you to monitor parallel stories side-by-side in the UI.
+
+---
+
 ## 🗄️ Database & Persistence
 
 Ada uses a SQLite database to track job history and logs. When running via Docker, this is stored in a persistent volume.
