@@ -9,6 +9,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 - **Senior Autonomous Logic**: Ada behaves as a senior engineer — exploring code, creating internal monologues, and following a strict Plan-before-Code discipline.
 - **Full SDLC Integration**: Provide a GitHub URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
 - **High Autonomy (80+ Tool Calls)**: Ada is equipped with a large tool-call budget, allowing for massive refactors and multi-file changes in one session.
+- **Parallel Backlog Execution**: Distribute multiple User Stories across a cluster of workers. Ada can process an entire backlog in parallel, horizontally scaling to meet your team's velocity.
 - **Template-Driven PRs**: Generates structured PRs using `.ada/pr_template.md`, including completed tasks and file diff summaries.
 - **VCS Webhook Support**: Generalized webhook architecture supporting GitHub (and soon Bitbucket/Azure) for automated feedback loops.
 - **Closed-Loop Development**:
@@ -22,53 +23,49 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ## 🏛 Architecture
 
+### System Flow (Distributed Architecture)
 ```
-┌───────────────────────────────────────┐    ┌───────────────────────────────────────┐
-│  API & Async Workers (api.main:app)   │    │  CLI Scripts (Standalone Mode)        │
-│  FastAPI → Redis Queue → Celery       │    │  run_sdlc.py | run_epic | run_ada   │
-└──────────────────┬────────────────────┘    └──────────────────┬────────────────────┘
-                   │                                            │
-                   └──────────────────────┬─────────────────────┘
-                                          │
-┌─────────────────────────────────────────▼──────────────────────────────────────────┐
-│  SDLCOrchestrator     (orchestrator/sdlc_orchestrator.py)                          │
-│                                                                                    │
-│  1. GitManager.clone(url)             → workspace/repo/                            │
-│  2. For each story:                                                                │
-│     a. GitManager.create_branch()     → ada/<story-id>-<slug>                      │
-│     b. EpicOrchestrator.execute()     → direct sandboxed execution                 │
-│     c. GitManager.commit() + push()   → structured commit message                  │
-│     d. GitHubClient.create_pr()       → PR from template                           │
-└─────────────────────────────────────────┬──────────────────────────────────────────┘
-                                          │
-                  ┌───────────────────────┴───────────────────────┐
-                  │                                               │
-┌─────────────────▼───────────────┐               ┌───────────────▼─────────────────┐
-│  VCS WEBHOOKS (Auto-Fix)        │               │  SDLC PIPELINE (Backlog)        │
-│  api/webhooks/vcs.py            │               │  orchestrator/epic_orch...      │
-└────────────────┬────────────────┘               └───────────────┬─────────────────┘
-                 │                                                │
-                 └──────────────────────┬─────────────────────────┘
-                                        │
-┌───────────────────────────────────────▼───────────────────────────────────────┐
-│  NEXT.JS CONSOLE UI (ui/)                                                     │
-│  Interactive dashboard for dispatching stories and streaming logs.            │
-└───────────────────────────────────────────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│  SandboxBackend    (isolation/sandbox.py)   [per story]             │
+┌──────────────────────────┐      ┌──────────────────────────┐
+│   Next.js Console UI     │      │   GitHub Webhooks        │
+│   (Interaction & Logs)   │      │   (CI Fails / Comments)  │
+└───────────┬──────────────┘      └───────────┬──────────────┘
+            │                                 │
+            ▼                                 ▼
+┌────────────────────────────────────────────────────────────┐
+│                  FastAPI Gateway (api/)                    │
+│    (Auth, Story Intake, Job Management, Log Streaming)     │
+└───────────┬─────────────────────────────────┬──────────────┘
+            │                                 │
+            │   [1] Dispatch Story            │   [4] Persist Logs/State
+            ▼                                 ▼
+┌──────────────────────────┐      ┌──────────────────────────┐
+│   Redis Message Broker   │      │    SQLite Database       │
+│   (Celery Task Queue)    │      │    (ada_jobs.db)         │
+└───────────┬──────────────┘      └───────────▲──────────────┘
+            │                                 │
+            │   [2] Consume Task              │   [3] Progress Updates
+            ▼                                 │
+┌─────────────────────────────────────────────┴──────────────┐
+│              Autonomous Workers (worker/)                  │
+│    (Horizontal Scaling • One Worker per Story Sandbox)      │
+└───────────┬───────────────────┬────────────────────────────┘
+            │                   │
+            │ [5] Reason        │ [6] Stream Logs (Pub/Sub)
+            ▼                   ▼
+┌──────────────────────┐    ┌──────────────────────┐
+│   Sandbox Workspace  │    │   Redis (logs:id)    │
+│   (Git/Plan/Code)    │    │   (SSE to Browser)   │
+└──────────────────────┘    └──────────────────────┘
+```
 
-│                                                                     │
-│  • Copies repo → .ada_sandbox/story_<id>/repo                      │
-│  • Runs PipelineOrchestrator  [CodingAgent]                         │
-│  • Direct Execution: Exploration, Planning & Coding in one session  │
-└─────────────────────────────────────────────────────────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  CodingAgent    │
-                    │  (Plan + Code)  │
-                    └─────────────────┘
-```
+> **Note on Log Streaming**: While stories are queued via **Celery**, logs bypass the task queue and use **Redis Pub/Sub** for real-time streaming. The API subscribes to these logs and pushes them to the UI via Server-Sent Events (SSE), ensuring zero-latency monitoring.
+
+### Execution Pipeline (The Story Lifecycle)
+1. **Bootstrap**: `SDLCOrchestrator` clones the repo and creates a feature branch.
+2. **Isolation**: `SandboxBackend` creates an ephemeral filesystem copy for the story.
+3. **Reasoning**: `CodingAgent` (Ada) researches, plans, and edits code until the Story is complete.
+4. **Validation**: `ValidationAgent` ensures Acceptance Criteria and Global Rules are met.
+5. **Finalization**: `GitManager` commits changes, pushes to origin, and `GitHubClient` opens the PR.
 
 ---
 
