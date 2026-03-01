@@ -6,15 +6,16 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ## 🚀 Features
 
-- **Direct Story Execution**: Eliminate brittle task-generation steps. Ada's `CodingAgent` handles the entire User Story lifecycle (Research → Plan → Code → Verify) in a single high-context window.
+- **Senior Autonomous Logic**: Ada behaves as a senior engineer — exploring code, creating internal monologues, and following a strict Plan-before-Code discipline.
 - **Full SDLC Integration**: Provide a GitHub URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
 - **High Autonomy (80+ Tool Calls)**: Ada is equipped with a large tool-call budget, allowing for massive refactors and multi-file changes in one session.
-- **Git & GitHub Integration**: Creates feature branches per story with human-readable slugs, commits with structured messages, and opens PRs using a configurable template.
+- **Template-Driven PRs**: Generates structured PRs using `.ada/pr_template.md`, including completed tasks and file diff summaries.
 - **VCS Webhook Support**: Generalized webhook architecture supporting GitHub (and soon Bitbucket/Azure) for automated feedback loops.
 - **Closed-Loop Development**:
     - **CI/CD Auto-Fix**: Ada listens to VCS Webhooks. If a CI pipeline fails, she automatically downloads log artifacts, reproduces the bug, and pushes a patch.
     - **Human Feedback**: Comment on an Ada PR, and she will autonomously apply your requested changes and push the update.
 - **Isolated Sandbox Execution**: Each story runs in a clean, ephemeral sandbox, ensuring zero side effects on the host or other tasks.
+- **Real-time Engineering Audit**: Follow Ada's reasoning in the Console UI with live streaming of tool calls, outputs, and internal "monologues".
 - **LLM Support**: Built-in support for **Groq** (extremely fast) and **OpenAI**.
 
 ---
@@ -89,6 +90,14 @@ cp env.example .env
 ```bash
 GROQ_API_KEY=gsk_your_key_here
 GITHUB_TOKEN=ghp_your_pat_here
+OPENAI_API_KEY=sk_your_key_here (optional, if using OpenAI)
+
+#### Advanced Configuration (Optional)
+```bash
+REDIS_URL=redis://redis:6379/0
+DATABASE_URL=sqlite:////app/data/ada_jobs.db
+ADA_TMP_DIR=/tmp/ada_runs
+```
 ```
 
 ### 3. Build & Run (Docker Compose)
@@ -158,18 +167,26 @@ ada/
 ├── run_local.py                  # Local story runner (runs on existing folder)
 ├── api/
 │   ├── main.py                   # FastAPI Story intake
-│   └── webhooks/vcs.py           # Provider-agnostic webhook handlers (GitHub, etc)
+│   ├── database.py               # SQLite & SQLAlchemy setup
+│   └── webhooks/                 # VCS Webhook handlers (GitHub, etc)
 ├── agents/
-│   ├── coding_agent.py           # Single agent for Plan + Code loop
-│   ├── validation_agent.py       # (Audit layer / reserved for future use)
+│   ├── base_agent.py             # Agent base class with history management
+│   ├── coding_agent.py           # Senior autonomous Coder (Plan + Code)
+│   ├── validation_agent.py       # Autonomous Auditor and QA
 │   └── llm_client.py             # Groq/OpenAI client wrappers
 ├── orchestrator/
-│   ├── sdlc_orchestrator.py      # Git lifecycle management
-│   ├── epic_orchestrator.py      # Sequential story execution
-│   └── task_executor.py          # Pipeline loop + retry logic
+│   ├── sdlc_orchestrator.py      # Git lifecycle & PR management
+│   ├── epic_orchestrator.py      # Multi-story backlog execution
+│   └── task_executor.py          # Pipeline loop & agent chaining
+├── tools/
+│   ├── tools.py                  # Core filesystem & command tools
+│   ├── git_manager.py            # High-level Git operations
+│   └── github_client.py          # GitHub API integration
 └── isolation/
     ├── sandbox.py                # Local filesystem isolation
     └── docker_backend.py         # Container-based isolation
+└── utils/
+    └── logger.py                 # Multi-destination logging (UI, Redis, DB)
 ```
 
 ---
