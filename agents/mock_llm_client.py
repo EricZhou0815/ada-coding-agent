@@ -32,9 +32,10 @@ class MockLLMClient:
         self.step += 1
         
         # Simulate Ada's step-by-step reasoning for JWT task
+        response = None
         if self.step == 1:
             # First step: Explore the repository
-            return {
+            response = {
                 "content": "I'll start by exploring the repository to understand the current structure.",
                 "function_call": self._create_function_call("list_files", {"directory": "repo_snapshot"}),
                 "finish_reason": "function_call"
@@ -42,7 +43,7 @@ class MockLLMClient:
         
         elif self.step == 2:
             # Read the main app file
-            return {
+            response = {
                 "content": "Let me read the main Flask application file.",
                 "function_call": self._create_function_call("read_file", {"path": "repo_snapshot/app.py"}),
                 "finish_reason": "function_call"
@@ -50,7 +51,7 @@ class MockLLMClient:
         
         elif self.step == 3:
             # Read the auth file
-            return {
+            response = {
                 "content": "Now I'll check the authentication module.",
                 "function_call": self._create_function_call("read_file", {"path": "repo_snapshot/auth.py"}),
                 "finish_reason": "function_call"
@@ -124,7 +125,7 @@ def verify_jwt_token(token: str) -> Optional[str]:
     except jwt.InvalidTokenError:
         return None
 '''
-            return {
+            response = {
                 "content": "I'll update auth.py to add JWT token generation and verification functions.",
                 "function_call": self._create_function_call("write_file", {
                     "path": "repo_snapshot/auth.py",
@@ -179,7 +180,7 @@ def protected_route():
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
 '''
-            return {
+            response = {
                 "content": "Now I'll update the Flask app to use JWT tokens in the login and protected routes.",
                 "function_call": self._create_function_call("write_file", {
                     "path": "repo_snapshot/app.py",
@@ -190,7 +191,7 @@ if __name__ == '__main__':
         
         else:
             # Task complete
-            return {
+            response = {
                 "content": """I have successfully implemented JWT authentication for the Flask application!
 
 Here's what I did:
@@ -207,6 +208,24 @@ FINISH - Task completed successfully!""",
                 "function_call": None,
                 "finish_reason": "stop"
             }
+
+        # Add assistant response to history
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": response.get("content"),
+            "tool_calls": [
+                {
+                    "id": "mock_call_id",
+                    "type": "function",
+                    "function": {
+                        "name": response["function_call"].name,
+                        "arguments": response["function_call"].arguments
+                    }
+                }
+            ] if response.get("function_call") else None
+        })
+        
+        return response
     
     def _create_function_call(self, name: str, arguments: dict):
         """

@@ -174,14 +174,17 @@ Repo Path: {repo_path}
 Validation Feedback: {validation_feedback if validation_feedback else "None"}
 
 WORKFLOW:
-1. Explore the codebase to understand the existing architecture.
+1. Explore the codebase using `list_files` and `read_file` to understand the existing architecture.
 2. Formulate an implementation plan.
-3. Use your tools to execute the plan step-by-step.
-4. Use the `run_command` tool to run tests and verify your changes.
+3. Use `edit_file` or `write_file` to execute the plan.
+4. Use `run_command` to run tests and verify your changes.
 5. If you break something, fix it immediately.
 
-CRITICAL: You MUST adhere to all Global Quality Rules.
-CRITICAL: You MUST verify all changes with tests before finishing.
-When the entire User Story is implemented and verified, include the word "finish" in your response.
+CONSTRAINTS:
+- **NO GIT**: Do not use `run_command` to run git commands (checkout, commit, etc.). This is handled automatically by the orchestrator.
+- **ACTION REQUIRED**: You cannot finish without making a change. If you think the story is already implemented, verify it with a test first.
+- **VERIFICATION**: You MUST run a test or verification command before finishing.
+
+When the entire User Story is implemented, saved, and verified, include the word "finish" in your response.
 Act as a human engineer named Ada.
 """

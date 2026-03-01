@@ -144,12 +144,20 @@ class SDLCOrchestrator:
                 )
 
             # ── Step 2c: Commit ───────────────────────────────────────────────
+            committed = False
             try:
                 commit_message = self._build_commit_message(story)
-                self.git.commit(commit_message)
+                committed = self.git.commit(commit_message)
             except Exception as e:
                 logger.error("SDLCOrchestrator", f"Commit failed: {e}")
                 all_success = False
+                continue
+
+            # If nothing was changed, we don't need to push or PR
+            if not committed:
+                logger.warning("SDLCOrchestrator", f"⚠ No changes detected for story [{story_id}]. Skipping Push and PR.")
+                if story_success:
+                    logger.info("SDLCOrchestrator", "Note: The agent claimed success, but the codebase remains identical to main.")
                 continue
 
             # ── Step 2d: Push ─────────────────────────────────────────────────

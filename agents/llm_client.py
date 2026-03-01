@@ -81,11 +81,19 @@ class LLMClient:
         if last_message and last_message.get("role") == "assistant" and last_message.get("tool_calls"):
             # The prompt is actually the result of the tool call
             # We must pass it as a `role: "tool"` message.
-            tool_call_id = last_message["tool_calls"][0].id
+            tool_call = last_message["tool_calls"][0]
+            # Handle both dictionary (serialized) and object (live) formats
+            if isinstance(tool_call, dict):
+                tool_call_id = tool_call.get("id")
+                function_name = tool_call.get("function", {}).get("name")
+            else:
+                tool_call_id = tool_call.id
+                function_name = tool_call.function.name
+
             self.conversation_history.append({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
-                "name": last_message["tool_calls"][0].function.name,
+                "name": function_name,
                 "content": prompt
             })
         else:

@@ -108,6 +108,22 @@ npm run dev
 
 ---
 
+## 🗄️ Database & Persistence
+
+Ada uses a SQLite database to track job history and logs. When running via Docker, this is stored in a persistent volume.
+
+- **Storage Location**: `/app/data/ada_jobs.db` (inside the container).
+- **Docker Volume**: `ada_data`.
+
+### Resetting History
+To clear all job history and reset the database (e.g., to force a schema update):
+```bash
+docker-compose down -v
+```
+*(The `-v` flag removes the named volume containing the database file.)*
+
+---
+
 ## 💻 Usage
 
 ### 🏭 Autonomous API Factory

@@ -136,7 +136,7 @@ class GitManager:
         """
         if not self.has_changes():
             logger.warning("GitManager", "Nothing to commit — working tree is clean.")
-            return
+            return False
 
         self.stage_all()
         result = self._run(["git", "commit", "-m", message])
@@ -144,6 +144,7 @@ class GitManager:
             raise RuntimeError(f"git commit failed:\n{result.stderr}")
 
         logger.info("GitManager", f"Committed: {message.splitlines()[0]}")
+        return True
 
     def push(self, branch_name: str, remote: str = "origin") -> None:
         """
