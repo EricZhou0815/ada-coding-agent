@@ -2,6 +2,7 @@ import os
 import json
 from uuid import uuid4
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from typing import List, Dict, Any, Optional
 
@@ -15,6 +16,15 @@ app = FastAPI(
     title="Ada Autonomous Agent API",
     description="Scalable, isolated, multi-tenant AI developer for user stories.",
     version="1.0"
+)
+
+# ── CORS ──────────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ── Models ──────────────────────────────────────────────────────────────────
