@@ -89,13 +89,23 @@ class CodingAgent(BaseAgent):
 
     def _save_checkpoint(self, path: str, tool_call_count: int):
         """Persists the agent's current state to a file."""
+        def json_serializable(obj):
+            """Fallback strategy for non-JSON objects."""
+            if hasattr(obj, "model_dump"):
+                return obj.model_dump()
+            if hasattr(obj, "to_dict"):
+                return obj.to_dict()
+            if hasattr(obj, "__dict__"):
+                return obj.__dict__
+            return str(obj)
+
         try:
             state = {
                 "messages": self.llm.get_conversation_history(),
                 "tool_call_count": tool_call_count
             }
             with open(path, "w") as f:
-                json.dump(state, f, indent=2)
+                json.dump(state, f, indent=2, default=json_serializable)
         except Exception as e:
             logger.warning(self.name, f"Failed to save checkpoint: {e}")
 

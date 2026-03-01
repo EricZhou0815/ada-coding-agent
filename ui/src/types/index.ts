@@ -9,8 +9,17 @@ export interface LogEntry {
 export interface Job {
     job_id: string;
     repo_url: string;
+    story_title?: string;
     status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'QUEUED';
     logs: LogEntry[];
+    created_at: string;
+}
+
+export interface JobSummary {
+    job_id: string;
+    repo_url: string;
+    story_title: string;
+    status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'QUEUED';
     created_at: string;
 }
 

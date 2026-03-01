@@ -6,14 +6,32 @@ import { Brain, Cpu, MessageSquare, Shield, Zap, ExternalLink, XCircle } from "l
 import { ExecutionForm } from "@/components/ExecutionForm"
 import { LogTerminal } from "@/components/LogTerminal"
 import { StatusBadge } from "@/components/StatusBadge"
-import { Job, ExecutionRequest } from "@/types"
+import { JobSidebar } from "@/components/JobSidebar"
+import { Job, JobSummary, ExecutionRequest } from "@/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function Home() {
+  const [jobs, setJobs] = useState<JobSummary[]>([])
   const [activeJob, setActiveJob] = useState<Job | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const fetchJobs = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/v1/jobs`)
+      if (resp.ok) {
+        const data = await resp.json()
+        setJobs(data)
+      }
+    } catch (err) {
+      console.error("Failed to fetch jobs:", err)
+    }
+  }
+
+  useEffect(() => {
+    fetchJobs()
+  }, [])
 
   const fetchJobStatus = async (jobId: string) => {
     try {
@@ -80,7 +98,6 @@ export default function Home() {
   const handleDispatch = async (payload: ExecutionRequest) => {
     setIsSubmitting(true)
     setError(null)
-    setActiveJob(null)
 
     try {
       const resp = await fetch(`${API_BASE}/api/v1/execute`, {
@@ -91,16 +108,24 @@ export default function Home() {
 
       if (!resp.ok) throw new Error("API request failed. Is the backend running?")
 
-      const jobs = await resp.json()
-      if (jobs.length > 0) {
-        // Initial setup for polling
-        await fetchJobStatus(jobs[0].job_id)
+      const results = await resp.json()
+      if (results.length > 0) {
+        // Refresh the jobs list to show the new submission
+        await fetchJobs()
+        // Select the first new job
+        await fetchJobStatus(results[0].job_id)
       }
     } catch (err: any) {
       setError(err.message)
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleSelectJob = async (jobId: string) => {
+    setError(null)
+    setActiveJob(null) // Reset while loading
+    await fetchJobStatus(jobId)
   }
 
   return (
@@ -129,86 +154,100 @@ export default function Home() {
         </div>
       </nav>
 
-      <div className="relative z-10 container max-w-7xl mx-auto px-6 py-12">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+      <div className="relative z-10 flex flex-col lg:flex-row h-[calc(100vh-73px)] overflow-hidden">
+        {/* Main Workspace Area */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-12">
+          <div className="max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
 
-          {/* Left Column: Form */}
-          <div className="lg:col-span-5 space-y-8">
-            <header className="space-y-3">
-              <h2 className="text-3xl font-extrabold tracking-tight text-white leading-none">
-                Dispatch <span className="bg-gradient-to-r from-cyan-400 to-blue-400 text-transparent bg-clip-text">Autonomous</span> Engineer
-              </h2>
-              <p className="text-slate-400 leading-relaxed text-sm">
-                Point Ada at any GitHub repository and define project requirements.
-                She explores, implementation, and validates autonomously.
-              </p>
-            </header>
+              {/* Left Column: Form */}
+              <div className="lg:col-span-5 space-y-8">
+                <header className="space-y-3">
+                  <h2 className="text-3xl font-extrabold tracking-tight text-white leading-none">
+                    Dispatch <span className="bg-gradient-to-r from-cyan-400 to-blue-400 text-transparent bg-clip-text">Autonomous</span> Engineer
+                  </h2>
+                  <p className="text-slate-400 leading-relaxed text-sm">
+                    Point Ada at any GitHub repository and define project requirements.
+                    She explores, implements, and validates autonomously.
+                  </p>
+                </header>
 
-            <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl ring-1 ring-white/5">
-              <ExecutionForm onSubmit={handleDispatch} isSubmitting={isSubmitting} />
+                <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl ring-1 ring-white/5">
+                  <ExecutionForm onSubmit={handleDispatch} isSubmitting={isSubmitting} />
 
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm flex gap-3"
-                >
-                  <XCircle className="w-5 h-5 shrink-0" />
-                  {error}
-                </motion.div>
-              )}
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-6 p-4 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-sm flex gap-3"
+                    >
+                      <XCircle className="w-5 h-5 shrink-0" />
+                      {error}
+                    </motion.div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Stream & Status */}
+              <div className="lg:col-span-7 space-y-8 h-full">
+                <AnimatePresence mode="wait">
+                  {activeJob ? (
+                    <motion.div
+                      key={activeJob.job_id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className="space-y-6"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-lg font-bold text-slate-100 italic truncate max-w-xs">
+                              {activeJob.story_title || `Job #${activeJob.job_id.slice(0, 8)}`}
+                            </h3>
+                            <StatusBadge status={activeJob.status} />
+                          </div>
+                          <p className="text-xs text-slate-500 flex items-center gap-1 font-mono uppercase truncate">
+                            <ExternalLink className="w-3 h-3" />
+                            {activeJob.repo_url}
+                          </p>
+                        </div>
+                      </div>
+
+                      <LogTerminal logs={activeJob.logs} />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="empty-state"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="h-[600px] flex flex-col items-center justify-center space-y-6 text-center"
+                    >
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-cyan-500/10 blur-3xl rounded-full" />
+                        <MessageSquare className="w-20 h-20 text-slate-800 relative z-10" />
+                      </div>
+                      <div className="space-y-2 max-w-sm">
+                        <h3 className="text-xl font-bold text-slate-300">Select or Dispatch a Story</h3>
+                        <p className="text-slate-500 text-sm">
+                          Logs will stream here in real-time once the worker picks up your story.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
+        </div>
 
-          {/* Right Column: Stream & Status */}
-          <div className="lg:col-span-1 space-y-8 hidden lg:block" />
-
-          <div className="lg:col-span-6 space-y-8 h-full">
-            <AnimatePresence mode="wait">
-              {activeJob ? (
-                <motion.div
-                  key="active-job"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-bold text-slate-100 italic">Job #{activeJob.job_id.slice(0, 8)}</h3>
-                        <StatusBadge status={activeJob.status} />
-                      </div>
-                      <p className="text-xs text-slate-500 flex items-center gap-1 font-mono uppercase">
-                        <ExternalLink className="w-3 h-3" />
-                        {activeJob.repo_url}
-                      </p>
-                    </div>
-                  </div>
-
-                  <LogTerminal logs={activeJob.logs} />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="empty-state"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="h-[600px] flex flex-col items-center justify-center space-y-6 text-center"
-                >
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-cyan-500/10 blur-3xl rounded-full" />
-                    <MessageSquare className="w-20 h-20 text-slate-800 relative z-10" />
-                  </div>
-                  <div className="space-y-2 max-w-sm">
-                    <h3 className="text-xl font-bold text-slate-300">Awaiting Submissions</h3>
-                    <p className="text-slate-500 text-sm">
-                      Logs will stream here in real-time once the worker picks up your story.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+        {/* Right Sidebar: History */}
+        <div className="hidden lg:block">
+          <JobSidebar
+            jobs={jobs}
+            activeJobId={activeJob?.job_id}
+            onSelect={handleSelectJob}
+          />
         </div>
       </div>
 

@@ -135,10 +135,28 @@ class LLMClient:
             function_call = tool_calls[0].function
 
         # Add assistant response to history
+        serializable_tool_calls = None
+        if tool_calls:
+            serializable_tool_calls = []
+            for tc in tool_calls:
+                # Use model_dump if it's a Pydantic model (OpenAI V1+)
+                if hasattr(tc, "model_dump"):
+                    serializable_tool_calls.append(tc.model_dump())
+                else:
+                    # Manual mapping for older SDKs or Groq
+                    serializable_tool_calls.append({
+                        "id": getattr(tc, "id", None),
+                        "type": getattr(tc, "type", "function"),
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    })
+
         self.conversation_history.append({
             "role": "assistant",
             "content": message.content,
-            "tool_calls": tool_calls,
+            "tool_calls": serializable_tool_calls,
         })
 
         return {

@@ -211,19 +211,16 @@ FINISH - Task completed successfully!""",
     def _create_function_call(self, name: str, arguments: dict):
         """
         Creates a mock function call object mimicking the OpenAI SDK structure.
-
-        Args:
-            name (str): The name of the function to call.
-            arguments (dict): The arguments to pass to the function.
-
-        Returns:
-            FunctionCall: An object with `name` and serialized `arguments`.
         """
         class FunctionCall:
             def __init__(self, name, arguments):
                 self.name = name
                 self.arguments = json.dumps(arguments)
-        
+            
+            # This allows it to be JSON serializable
+            def to_dict(self):
+                return {"name": self.name, "arguments": self.arguments}
+
         return FunctionCall(name, arguments)
     
     def get_conversation_history(self):

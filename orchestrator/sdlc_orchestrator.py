@@ -254,6 +254,7 @@ class SDLCOrchestrator:
         pr_body = template.format(
             story_id=story_id,
             story_title=story_title,
+            story_description=story.get("description") or "_No description provided._",
             acceptance_criteria=criteria_text or "_None specified._",
             task_list="_Tasks were planned and executed autonomously by Ada._",
             quality_rules=rules_text,

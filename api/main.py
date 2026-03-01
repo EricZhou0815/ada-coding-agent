@@ -24,7 +24,7 @@ app = FastAPI(
 # ── CORS ──────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://0.0.0.0:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,7 +51,16 @@ class JobResponse(BaseModel):
 class JobStatusResponse(BaseModel):
     job_id: str
     status: str
-    logs: List[Dict[str, str]]
+    repo_url: str
+    story_title: Optional[str]
+    logs: List[Dict[str, Any]]
+    created_at: str
+
+class JobSummary(BaseModel):
+    job_id: str
+    status: str
+    repo_url: str
+    story_title: Optional[str]
     created_at: str
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -73,6 +82,7 @@ def execute_stories(req: ExecutionRequest, db: SessionLocal = Depends(get_db)):
         new_job = StoryJob(
             id=job_id,
             repo_url=str(req.repo_url),
+            story_title=story.title,
             status="PENDING",
             logs=json.dumps([{"timestamp": "now", "message": "Job queued for celery worker."}])
         )
@@ -97,6 +107,22 @@ def execute_stories(req: ExecutionRequest, db: SessionLocal = Depends(get_db)):
     return jobs_created
 
 
+@app.get("/api/v1/jobs", response_model=List[JobSummary])
+def list_jobs(db: SessionLocal = Depends(get_db)):
+    """
+    Returns a history of all user story jobs.
+    """
+    jobs = db.query(StoryJob).order_by(StoryJob.created_at.desc()).all()
+    return [
+        {
+            "job_id": j.id,
+            "status": j.status,
+            "repo_url": j.repo_url,
+            "story_title": j.story_title,
+            "created_at": str(j.created_at)
+        } for j in jobs
+    ]
+
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse)
 def get_job_status(job_id: str, db: SessionLocal = Depends(get_db)):
     """
@@ -116,6 +142,8 @@ def get_job_status(job_id: str, db: SessionLocal = Depends(get_db)):
     return {
         "job_id": job.id,
         "status": job.status,
+        "repo_url": job.repo_url,
+        "story_title": job.story_title,
         "logs": logs,
         "created_at": str(job.created_at)
     }
