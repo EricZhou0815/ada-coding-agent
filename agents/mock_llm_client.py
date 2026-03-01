@@ -226,9 +226,16 @@ FINISH - Task completed successfully!""",
         
         return FunctionCall(name, arguments)
     
+    def get_conversation_history(self):
+        """Returns the mock conversation history."""
+        return self.conversation_history
+
+    def set_conversation_history(self, history):
+        """Sets the mock conversation history."""
+        self.conversation_history = history
+        # Try to infer the step from the history length
+        self.step = len(history) // 2
     def reset_conversation(self):
-        """
-        Clears the current conversation history and resets the mock's step counter.
-        """
+        """Clears the current conversation history and resets the mock's step counter."""
         self.conversation_history = []
         self.step = 0

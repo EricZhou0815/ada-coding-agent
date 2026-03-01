@@ -41,6 +41,7 @@ class ExecutionRequest(BaseModel):
     repo_url: HttpUrl
     stories: List[StoryPayload]
     base_branch: Optional[str] = "main"
+    use_mock: bool = False
     
 class JobResponse(BaseModel):
     job_id: str
@@ -89,7 +90,8 @@ def execute_stories(req: ExecutionRequest, db: SessionLocal = Depends(get_db)):
         execute_sdlc_story.delay(
             job_id=job_id, 
             repo_url=str(req.repo_url), 
-            story=story.model_dump()
+            story=story.model_dump(),
+            use_mock=req.use_mock
         )
         
     return jobs_created

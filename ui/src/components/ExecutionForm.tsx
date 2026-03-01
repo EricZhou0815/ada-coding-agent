@@ -16,6 +16,7 @@ export const ExecutionForm: React.FC<ExecutionFormProps> = ({ onSubmit, isSubmit
     const [title, setTitle] = useState("")
     const [description, setDescription] = useState("")
     const [criteria, setCriteria] = useState<string[]>([""])
+    const [useMock, setUseMock] = useState(false)
 
     const handleAddCriteria = () => setCriteria([...criteria, ""])
     const handleRemoveCriteria = (idx: number) => {
@@ -43,6 +44,7 @@ export const ExecutionForm: React.FC<ExecutionFormProps> = ({ onSubmit, isSubmit
         onSubmit({
             repo_url: repoUrl,
             stories: [story],
+            use_mock: useMock,
         })
     }
 
@@ -143,28 +145,56 @@ export const ExecutionForm: React.FC<ExecutionFormProps> = ({ onSubmit, isSubmit
                             Add Criterion
                         </button>
                     </div>
+                    {/* Mock Mode Toggle */}
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-900/40 hover:bg-slate-900/60 transition-colors">
+                        <div className="space-y-0.5">
+                            <label className="text-xs font-semibold text-slate-200 flex items-center gap-2 uppercase tracking-wider">
+                                <Loader2 className={cn("w-3.5 h-3.5", useMock && "animate-spin text-cyan-400")} />
+                                Mock Mode (Demo)
+                            </label>
+                            <p className="text-[10px] text-slate-500">
+                                Use pre-recorded reasoning without consuming LLM credits
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setUseMock(!useMock)}
+                            className={cn(
+                                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-950",
+                                useMock ? "bg-cyan-600" : "bg-slate-700"
+                            )}
+                            disabled={isSubmitting}
+                        >
+                            <span
+                                className={cn(
+                                    "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out",
+                                    useMock ? "translate-x-4" : "translate-x-0"
+                                )}
+                            />
+                        </button>
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={isSubmitting || !repoUrl || !title}
+                        className={cn(
+                            "w-full py-3 px-4 flex items-center justify-center gap-2 font-bold text-sm tracking-widest uppercase transition-all duration-300 rounded-lg group shadow-lg",
+                            isSubmitting
+                                ? "bg-slate-800 text-slate-400 cursor-not-allowed"
+                                : "bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-950/20 hover:shadow-cyan-500/10 active:scale-95"
+                        )}
+                    >
+                        {isSubmitting ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                            <>
+                                <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
+                                Dispatch Ada
+                            </>
+                        )}
+                    </button>
                 </div>
             </div>
-
-            <button
-                type="submit"
-                disabled={isSubmitting || !repoUrl || !title}
-                className={cn(
-                    "w-full py-3 px-4 flex items-center justify-center gap-2 font-bold text-sm tracking-widest uppercase transition-all duration-300 rounded-lg group shadow-lg",
-                    isSubmitting
-                        ? "bg-slate-800 text-slate-400 cursor-not-allowed"
-                        : "bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-950/20 hover:shadow-cyan-500/10 active:scale-95"
-                )}
-            >
-                {isSubmitting ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                    <>
-                        <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
-                        Dispatch Ada
-                    </>
-                )}
-            </button>
         </form>
     )
 }

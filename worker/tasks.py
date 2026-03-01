@@ -20,38 +20,12 @@ celery_app.conf.update(
     worker_concurrency=int(os.getenv("CELERY_CONCURRENCY", "4"))
 )
 
-def _append_job_log(job_id, message):
-    """Utility to append logs to the DB and publish to Redis."""
-    from api.database import SessionLocal, StoryJob
-    from datetime import datetime
-    import redis
-    
-    timestamp = datetime.utcnow().isoformat()
-    log_entry = {
-        "timestamp": timestamp,
-        "message": message
-    }
-    
-    # 1. Update Database (Historical Persistence)
-    db = SessionLocal()
-    job = db.query(StoryJob).filter(StoryJob.id == job_id).first()
-    if job:
-        try:
-            logs = json.loads(job.logs) if job.logs else []
-        except:
-            logs = []
-        logs.append(log_entry)
-        job.logs = json.dumps(logs)
-        db.commit()
-    db.close()
+from utils.logger import logger as ada_logger
 
-    # 2. Publish to Redis (Live Streaming)
-    try:
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        r = redis.from_url(redis_url)
-        r.publish(f"logs:{job_id}", json.dumps(log_entry))
-    except Exception as e:
-        print(f"Failed to publish log to Redis: {e}")
+def _append_job_log(job_id, message):
+    """Legacy helper, redirects to structured logger info."""
+    ada_logger.set_job_id(job_id)
+    ada_logger.info("System", message)
     
 def _update_job_status(job_id, status):
     """Utility to update DB status."""
@@ -65,7 +39,7 @@ def _update_job_status(job_id, status):
 
 
 @celery_app.task(bind=True)
-def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict):
+def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict, use_mock: bool = False):
     """
     Celery task that executes a specific story in complete workspace isolation.
     """
@@ -78,10 +52,11 @@ def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict):
     from orchestrator.sdlc_orchestrator import SDLCOrchestrator
     from orchestrator.rule_provider import LocalFolderRuleProvider
     
-    logger = logging.getLogger("CeleryTask")
+    from utils.logger import logger
+    logger.set_job_id(job_id)
     
     _update_job_status(job_id, "RUNNING")
-    _append_job_log(job_id, f"Initializing isolated run for {repo_url}...")
+    logger.info("System", f"Initializing isolated run for {repo_url}...")
     
     # Generate unique sandbox folder
     # /tmp/ada_runs/1234-5678-uuid/
@@ -91,7 +66,7 @@ def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict):
     
     try:
         # Construct isolated Ada components
-        llm_client = Config.get_llm_client()
+        llm_client = Config.get_llm_client(force_mock=use_mock)
         planning_tools = Tools()
         rule_providers = [LocalFolderRuleProvider()]
         

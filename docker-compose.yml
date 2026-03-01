@@ -21,8 +21,8 @@ services:
       - "8000:80"
     environment:
       - REDIS_URL=redis://redis:6379/0
-      # Use a persistent SQLite database mapped to a volume
       - DATABASE_URL=sqlite:////app/data/ada_jobs.db
+      - PYTHONPATH=/app
     volumes:
       - ada_data:/app/data
       - ./.env:/app/.env  # Mount local .env for API keys
@@ -41,6 +41,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite:////app/data/ada_jobs.db
       - ADA_TMP_DIR=/tmp/ada_runs
+      - PYTHONPATH=/app
     volumes:
       - ada_data:/app/data
       - ./.env:/app/.env   # API keys must be available to workers

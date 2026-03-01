@@ -1,6 +1,9 @@
 export interface LogEntry {
     timestamp: string;
+    level?: 'info' | 'thought' | 'tool' | 'tool_result' | 'success' | 'error' | 'warning';
+    prefix?: string;
     message: string;
+    metadata?: any;
 }
 
 export interface Job {
@@ -22,4 +25,5 @@ export interface ExecutionRequest {
     repo_url: string;
     stories: StoryPayload[];
     base_branch?: string;
+    use_mock?: boolean;
 }
