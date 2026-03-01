@@ -99,15 +99,30 @@ class LLMClient:
         if tools:
             api_tools = self._tools_to_tools_api_format(tools)
 
-        # Make API call (same interface for both Groq and OpenAI)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.conversation_history,
-            tools=api_tools if api_tools else None,
-            tool_choice="auto" if api_tools else None,
-            temperature=0.7,
-            max_tokens=2000,
-        )
+        import time
+        max_api_retries = 3
+        api_retry_count = 0
+        
+        while api_retry_count < max_api_retries:
+            try:
+                # Make API call (same interface for both Groq and OpenAI)
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.conversation_history,
+                    tools=api_tools if api_tools else None,
+                    tool_choice="auto" if api_tools else None,
+                    temperature=0.7,
+                    max_tokens=2000,
+                )
+                break
+            except Exception as e:
+                api_retry_count += 1
+                if api_retry_count >= max_api_retries:
+                    raise e
+                # Wait before retrying (exponential backoff)
+                wait_time = 2 ** api_retry_count
+                time.sleep(wait_time)
+
 
         message = response.choices[0].message
 
@@ -252,6 +267,18 @@ class LLMClient:
         Clears the conversation history stored in this client instance.
         """
         self.conversation_history = []
+
+    def get_conversation_history(self) -> List[Dict]:
+        """
+        Returns the current conversation history.
+        """
+        return self.conversation_history
+
+    def set_conversation_history(self, history: List[Dict]):
+        """
+        Overrides the current conversation history.
+        """
+        self.conversation_history = history
 
 
 # Backward-compatible alias

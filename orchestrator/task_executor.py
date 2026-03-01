@@ -21,13 +21,14 @@ class PipelineOrchestrator:
         self.rule_providers = rule_providers or []
         self.max_retries = max_retries
 
-    def execute_story(self, story: Dict, repo_path: str) -> bool:
+    def execute_story(self, story: Dict, repo_path: str, additional_context: Optional[Dict] = None) -> bool:
         """
         Executes the agent pipeline for the given User Story.
         
         Args:
             story (Dict): The user story dictionary.
             repo_path (str): Path to isolated workspace.
+            additional_context (Optional[Dict]): Extra context like checkpoint paths.
             
         Returns:
             bool: True if the pipeline finished successfully, False if max_retries hit.
@@ -47,6 +48,9 @@ class PipelineOrchestrator:
         context = {
             "global_rules": global_rules
         }
+        if additional_context:
+            context.update(additional_context)
+
 
         while retries < self.max_retries:
             pipeline_success = True

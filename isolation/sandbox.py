@@ -87,8 +87,12 @@ class SandboxBackend(IsolationBackend):
                 max_retries=25
             )
             
+            # Setup Checkpoint Path
+            checkpoint_path = os.path.join(self.current_workspace, "checkpoint.json")
+            additional_context = {"checkpoint_path": checkpoint_path}
+            
             # Execute the full story
-            success = executor.execute_story(story, isolated_repo)
+            success = executor.execute_story(story, isolated_repo, additional_context=additional_context)
             
             # Copy results back to original repo if successful
             if success:

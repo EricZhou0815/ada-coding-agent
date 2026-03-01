@@ -1,3 +1,4 @@
+import os
 import json
 from typing import Dict, List
 from agents.base_agent import BaseAgent, AgentResult
@@ -23,45 +24,62 @@ class CodingAgent(BaseAgent):
     def run(self, story: Dict, repo_path: str, context: Dict) -> AgentResult:
         """
         Executes a full User Story autonomously within the given repository.
-
-        The agent drives a reasoning loop where it prompts the LLM, processes tool calls,
-        and continues until it declares the story "finished" or hits the maximum iteration count.
-
-        Args:
-            story (Dict): A dictionary representing the User Story (title, description, criteria).
-            repo_path (str): The filesystem path to the repository snapshot or sandbox.
-            context (Dict): Global context including completed stories, rules, etc.
         """
         self.finished = False
-        self.llm.reset_conversation()
         
-        validation_feedback = context.get("validation_feedback", [])
-        global_rules = context.get("global_rules", [])
+        # Determine checkpoint path from context if available
+        checkpoint_path = context.get("checkpoint_path")
         
-        prompt = self._build_prompt(story, repo_path, validation_feedback, global_rules)
+        # Resume if checkpoint exists
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            try:
+                with open(checkpoint_path, "r") as f:
+                    state = json.load(f)
+                    self.llm.set_conversation_history(state.get("messages", []))
+                    tool_call_count = state.get("tool_call_count", 0)
+                    logger.info(self.name, f"↻ Resuming from checkpoint: {tool_call_count} tools already executed.")
+                prompt = "Please continue where you left off. Review your last action and determine the next step."
+            except Exception as e:
+                logger.warning(self.name, f"Failed to load checkpoint: {e}. Starting fresh.")
+                self.llm.reset_conversation()
+                tool_call_count = 0
+                prompt = self._build_prompt(story, repo_path, context.get("validation_feedback", []), context.get("global_rules", []))
+        else:
+            self.llm.reset_conversation()
+            tool_call_count = 0
+            prompt = self._build_prompt(story, repo_path, context.get("validation_feedback", []), context.get("global_rules", []))
         
-        # Run Ada's reasoning loop
-        # Increased for full story execution
         max_tool_calls = 80
-        tool_call_count = 0
         
         while not self.finished and tool_call_count < max_tool_calls:
-            response = self.llm.generate(prompt, tools=self.tools)
-            
-            # Check if Ada wants to use a tool
-            if response.get("function_call"):
-                tool_call_count += 1
-                result = self._execute_tool(response["function_call"])
-                prompt = f"Tool execution result: {json.dumps(result)}\n\nContinue or declare 'finish' if the entire story is complete."
-            
-            # Check if Ada declares story finished
-            if response.get("content") and "finish" in response["content"].lower():
-                self.finished = True
-                logger.thought(self.name, response['content'])
-                break
+            try:
+                response = self.llm.generate(prompt, tools=self.tools)
                 
-            if response.get("content"):
-                logger.thought(self.name, response['content'])
+                if response.get("function_call"):
+                    tool_call_count += 1
+                    result = self._execute_tool(response["function_call"])
+                    prompt = f"Tool execution result: {json.dumps(result)}\n\nContinue or declare 'finish' if the entire story is complete."
+                
+                if response.get("content"):
+                    logger.thought(self.name, response['content'])
+                    if "finish" in response["content"].lower():
+                        self.finished = True
+                        # Final save before breaking
+                        if checkpoint_path:
+                            self._save_checkpoint(checkpoint_path, tool_call_count)
+                        break
+
+
+                # Save Checkpoint after every successful interaction
+                if checkpoint_path:
+                    self._save_checkpoint(checkpoint_path, tool_call_count)
+
+            except Exception as e:
+                logger.error(self.name, f"Unexpected error in reasoning loop: {e}")
+                # Save checkpoint one last time if possible before crashing
+                if checkpoint_path:
+                    self._save_checkpoint(checkpoint_path, tool_call_count)
+                raise e # Propagate to orchestrator for retry/fail
         
         if tool_call_count >= max_tool_calls:
             logger.warning(self.name, f"Reached maximum tool calls ({max_tool_calls}), completing story phase.")
@@ -69,18 +87,32 @@ class CodingAgent(BaseAgent):
             
         return AgentResult(success=True, output="Coding phase completed.")
 
+    def _save_checkpoint(self, path: str, tool_call_count: int):
+        """Persists the agent's current state to a file."""
+        try:
+            state = {
+                "messages": self.llm.get_conversation_history(),
+                "tool_call_count": tool_call_count
+            }
+            with open(path, "w") as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            logger.warning(self.name, f"Failed to save checkpoint: {e}")
+
+
     def _execute_tool(self, function_call) -> Dict:
         """
         Executes a localized tool function dynamically based on the LLM's requested function call.
-
-        Args:
-            function_call (Any): The function call object returned by the LLM containing `name` and `arguments`.
-
-        Returns:
-            Dict: Result mapping containing `success` boolean and the `result` or `error` string.
         """
         function_name = function_call.name
-        arguments = json.loads(function_call.arguments)
+        try:
+            arguments = json.loads(function_call.arguments)
+        except json.JSONDecodeError as e:
+            logger.tool_result(self.name, success=False)
+            return {
+                "success": False, 
+                "error": f"Invalid JSON in function arguments for {function_name}: {str(e)}. Please correct the format."
+            }
         
         logger.tool(self.name, function_name, arguments)
         
@@ -98,6 +130,7 @@ class CodingAgent(BaseAgent):
         else:
             logger.tool_result(self.name, success=False)
             return {"success": False, "error": f"Unknown tool: {function_name}"}
+
 
     def _build_prompt(self, story: Dict, repo_path: str, validation_feedback: List[str], global_rules: List[str]) -> str:
         """
