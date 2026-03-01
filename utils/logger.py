@@ -2,7 +2,7 @@ import sys
 import json
 import os
 from datetime import datetime
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Any
 
 class LogHandler:
     """Base class for log handlers."""
@@ -136,8 +136,17 @@ class AdaLogger:
             safe_args = safe_args[:97] + "..."
         self._log("tool", agent_name, tool_name, {"args": safe_args})
 
-    def tool_result(self, agent_name: str, success: bool, output_len_bytes: int = 0):
-        self._log("tool_result", agent_name, "", {"success": success, "output_len": output_len_bytes})
+    def tool_result(self, agent_name: str, success: bool, result: Any = None, output_len_bytes: int = 0):
+        # Truncate result for UI visibility
+        safe_result = str(result)
+        if len(safe_result) > 500:
+            safe_result = safe_result[:497] + "..."
+            
+        self._log("tool_result", agent_name, "", {
+            "success": success, 
+            "output_len": output_len_bytes,
+            "result": safe_result if result is not None else None
+        })
 
     def success(self, msg: str):
         self._log("success", "System", msg)

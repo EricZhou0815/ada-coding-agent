@@ -105,13 +105,13 @@ class ValidationAgent(BaseAgent):
             try:
                 result = method(**arguments)
                 output_len = len(str(result).encode('utf-8')) if result else 0
-                logger.tool_result(self.name, success=True, output_len_bytes=output_len)
+                logger.tool_result(self.name, success=True, result=result, output_len_bytes=output_len)
                 return {"success": True, "result": result}
             except Exception as e:
-                logger.tool_result(self.name, success=False)
+                logger.tool_result(self.name, success=False, result=str(e))
                 return {"success": False, "error": str(e)}
         else:
-            logger.tool_result(self.name, success=False)
+            logger.tool_result(self.name, success=False, result=f"Unknown tool: {function_name}")
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
     def _build_prompt(self, story: Dict, repo_path: str, global_rules: list) -> str:

@@ -86,13 +86,44 @@ const LogLine: React.FC<{ log: LogEntry; isLast: boolean }> = ({ log, isLast }) 
                 animate={{ opacity: 1, x: 0 }}
                 className={cn("flex items-center gap-3 py-2 px-3 rounded-md border text-sm font-mono", bg, border)}
             >
-                <Settings className="w-4 h-4 text-amber-500 shrink-0" />
-                <div className="flex-1 flex gap-2 overflow-hidden">
-                    <span className="text-amber-500/50 select-none">$</span>
-                    <span className="text-amber-300 font-bold truncate">calling {log.message}</span>
-                    <span className="text-slate-500 opacity-60 truncate">({log.metadata?.args})</span>
+                <div className="flex h-5 w-5 items-center justify-center rounded bg-amber-500/10 shrink-0">
+                    <Settings className="w-3.5 h-3.5 text-amber-500" />
                 </div>
-                <span className="text-[10px] text-slate-600 shrink-0">{timeStr}</span>
+                <div className="flex-1 flex gap-2 overflow-hidden items-center">
+                    <span className="text-amber-500/50 text-[10px] uppercase font-black tracking-widest bg-amber-500/5 px-1 rounded">CMD</span>
+                    <span className="text-amber-300 font-bold truncate">{log.message}</span>
+                    <span className="text-slate-500 opacity-60 truncate font-normal">{log.metadata?.args}</span>
+                </div>
+                <span className="text-[10px] text-slate-600 shrink-0 font-mono">{timeStr}</span>
+            </motion.div>
+        )
+    }
+
+    if (log.level === 'tool_result') {
+        const success = log.metadata?.success
+        return (
+            <motion.div
+                initial={{ opacity: 0, x: 5 }}
+                animate={{ opacity: 1, x: 0 }}
+                className={cn("flex flex-col gap-2 py-2 px-3 rounded-md border text-[13px] font-mono mb-4 last:mb-0", bg, border)}
+            >
+                <div className="flex items-center gap-3">
+                    {success ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : <XCircle className="w-4 h-4 text-rose-500 shrink-0" />}
+                    <div className="flex-1 flex gap-2 items-center">
+                        <span className={cn("font-bold uppercase tracking-tighter", success ? "text-emerald-500" : "text-rose-500")}>
+                            {success ? "Execution Success" : "Execution Failed"}
+                        </span>
+                        {success && log.metadata?.output_len > 0 && (
+                            <span className="text-[10px] text-slate-600">({log.metadata.output_len} bytes returned)</span>
+                        )}
+                    </div>
+                    <span className="text-[10px] text-slate-600 shrink-0 font-mono">{timeStr}</span>
+                </div>
+                {log.metadata?.result && (
+                    <div className="bg-black/40 p-3 rounded border border-white/5 text-slate-400 text-xs overflow-x-auto whitespace-pre-wrap max-h-48 custom-scrollbar">
+                        {log.metadata.result}
+                    </div>
+                )}
             </motion.div>
         )
     }
@@ -102,7 +133,7 @@ const LogLine: React.FC<{ log: LogEntry; isLast: boolean }> = ({ log, isLast }) 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className={cn(
-                "flex items-start gap-4 py-1.5 px-3 rounded hover.bg-white/5 transition-colors group",
+                "flex items-start gap-4 py-1 px-3 rounded hover:bg-white/5 transition-colors group",
                 isLast && "bg-white/5 border-l-2 border-cyan-500"
             )}
         >
@@ -119,15 +150,9 @@ const LogLine: React.FC<{ log: LogEntry; isLast: boolean }> = ({ log, isLast }) 
                     )}
                     <span className={cn(
                         "text-sm font-mono break-words leading-relaxed",
-                        log.level === 'error' ? "text-rose-300" : "text-slate-300",
-                        log.level === 'tool_result' && (log.metadata?.success ? "text-emerald-300" : "text-rose-300")
+                        log.level === 'error' ? "text-rose-300" : "text-slate-300"
                     )}>
                         {log.message}
-                        {log.level === 'tool_result' && log.metadata?.success && (
-                            <span className="text-[10px] ml-2 text-slate-600">
-                                ({log.metadata.output_len} bytes)
-                            </span>
-                        )}
                     </span>
                 </div>
             </div>
