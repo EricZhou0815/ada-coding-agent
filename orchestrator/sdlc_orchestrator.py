@@ -5,7 +5,7 @@ Integrates Ada's agent pipeline into the full Software Development Lifecycle.
 
 Workflow per story:
   1. Create a scoped feature branch:  ada/<story-id>-<slug>
-  2. Run the EpicOrchestrator's planning + sequential sandbox execution
+  2. Run the EpicOrchestrator's direct sandbox execution
   3. Commit all changes with a structured commit message
   4. Push the branch to origin
   5. Open a Pull Request via the GitHub API using the PR template
@@ -43,8 +43,8 @@ class SDLCOrchestrator:
     ):
         """
         Args:
-            llm_client: LLM client for the PlanningAgent.
-            tools: Read-only tools for the PlanningAgent.
+            llm_client: LLM client for Ada.
+            tools: Read-only tools for initial exploration.
             repo_url: GitHub HTTPS or SSH URL of the target repository.
             base_branch: Branch PRs will target (default "main").
             tasks_output_dir: Directory to persist generated task JSON files.

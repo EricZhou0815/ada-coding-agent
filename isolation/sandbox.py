@@ -28,13 +28,13 @@ class SandboxBackend(IsolationBackend):
         self.current_workspace = None
         self.original_cwd = None
         
-    def setup(self, task: Dict, repo_path: str) -> None:
+    def setup(self, story: Dict, repo_path: str) -> None:
         """
-        Set up the sandboxed workspace.
+        Set up the sandboxed workspace for a full User Story.
         Creates a temporary isolated workspace and copies the repo.
         """
-        task_id = task.get('task_id', 'unknown')
-        self.current_workspace = os.path.join(self.workspace_root, f"task_{task_id}")
+        story_id = story.get('story_id', 'unknown')
+        self.current_workspace = os.path.join(self.workspace_root, f"story_{story_id}")
         
         # Create workspace directory
         os.makedirs(self.current_workspace, exist_ok=True)
@@ -47,12 +47,12 @@ class SandboxBackend(IsolationBackend):
         # Copy repo snapshot to isolated workspace
         shutil.copytree(repo_path, isolated_repo)
         
-        print(f"[Sandbox] Workspace created at: {self.current_workspace}")
+        print(f"[Sandbox] Workspace created for story at: {self.current_workspace}")
         print(f"[Sandbox] Isolated repo at: {isolated_repo}")
     
-    def execute(self, task: Dict, repo_path: str, completed_tasks: List[str]) -> bool:
+    def execute(self, story: Dict, repo_path: str) -> bool:
         """
-        Execute the task in the sandboxed environment.
+        Execute the full context of a User Story in the sandboxed environment.
         """
         if not self.current_workspace:
             raise RuntimeError("Sandbox not set up. Call setup() first.")
@@ -79,8 +79,7 @@ class SandboxBackend(IsolationBackend):
             print(f"[Sandbox] Using {Config.get_llm_provider().capitalize()} LLM")
             
             coding_agent = CodingAgent(llm_client, tools)
-            validation_agent = ValidationAgent(llm_client, tools)
-            agents_pipeline = [coding_agent, validation_agent]
+            agents_pipeline = [coding_agent]
             rule_providers = [LocalFolderRuleProvider()]
             executor = PipelineOrchestrator(
                 agents_pipeline,
@@ -88,13 +87,14 @@ class SandboxBackend(IsolationBackend):
                 max_retries=25
             )
             
-            # Execute the task
-            executor.execute_task(task, isolated_repo, completed_tasks)
+            # Execute the full story
+            success = executor.execute_story(story, isolated_repo)
             
-            # Copy results back to original repo
-            self._copy_results_back(isolated_repo, repo_path)
+            # Copy results back to original repo if successful
+            if success:
+                self._copy_results_back(isolated_repo, repo_path)
             
-            return True
+            return success
             
         except Exception as e:
             print(f"[Sandbox] Execution failed: {e}")

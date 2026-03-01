@@ -36,7 +36,10 @@ def test_execute_tool_success(mock_llm, mock_tools):
 
 def test_execute_tool_unknown(mock_llm, mock_tools):
     agent = CodingAgent(mock_llm, mock_tools)
-    del mock_tools.unknown_tool  # Make hasattr return False for this specific attribute
+    # Remove tool if it exists to test unknown tool handler
+    if hasattr(mock_tools, 'unknown_tool'):
+        del mock_tools.unknown_tool
+    
     function_call = MockFunctionCall("unknown_tool", '{}')
     result = agent._execute_tool(function_call)
     
@@ -45,17 +48,18 @@ def test_execute_tool_unknown(mock_llm, mock_tools):
 
 def test_build_prompt(mock_llm, mock_tools):
     agent = CodingAgent(mock_llm, mock_tools)
-    task = {
-        "title": "Test Title",
-        "description": "Test Desc"
+    story = {
+        "title": "Story Title",
+        "description": "Story Desc",
+        "acceptance_criteria": ["Finish X"]
     }
-    prompt = agent._build_prompt(task, "/repo", ["task1"], ["failed"], ["Rule 1"])
-    assert "Test Title" in prompt
-    assert "Test Desc" in prompt
+    prompt = agent._build_prompt(story, "/repo", ["failed logs"], ["Rule 1"])
+    assert "Story Title" in prompt
+    assert "Story Desc" in prompt
     assert "/repo" in prompt
-    assert "task1" in prompt
-    assert "failed" in prompt
+    assert "failed logs" in prompt
     assert "Rule 1" in prompt
+    assert "finish" in prompt.lower()
 
 def test_run_finishes_on_keyword(mock_llm, mock_tools):
     agent = CodingAgent(mock_llm, mock_tools)
@@ -64,8 +68,8 @@ def test_run_finishes_on_keyword(mock_llm, mock_tools):
         "function_call": None
     }
     
-    task = {"title": "T", "description": "D"}
-    agent.run(task, "/repo", {"completed_tasks": []})
+    story = {"title": "T", "description": "D"}
+    agent.run(story, "/repo", {})
     
     assert agent.finished == True
     mock_llm.reset_conversation.assert_called_once()

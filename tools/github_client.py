@@ -10,7 +10,7 @@ import re
 import json
 import urllib.request
 import urllib.error
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from utils.logger import logger
 
 
@@ -95,6 +95,69 @@ class GitHubClient:
         endpoint = f"/repos/{owner}/{repo}/pulls?state={state}"
         return self._get(endpoint)
 
+    def get_pull_request(self, owner: str, repo: str, pr_number: int) -> Dict:
+        """
+        Fetches details of a specific pull request.
+
+        Args:
+            owner: GitHub username or organisation.
+            repo: Repository name.
+            pr_number: The PR number.
+
+        Returns:
+            The PR object dict.
+        """
+        endpoint = f"/repos/{owner}/{repo}/pulls/{pr_number}"
+        return self._get(endpoint)
+
+    def create_issue_comment(self, owner: str, repo: str, issue_number: int, body: str) -> Dict:
+        """
+        Adds a comment to an issue or pull request.
+
+        Args:
+            owner: GitHub username or organisation.
+            repo: Repository name.
+            issue_number: The PR or issue number.
+            body: Comment body (markdown supported).
+
+        Returns:
+            The created comment object dict.
+        """
+        endpoint = f"/repos/{owner}/{repo}/issues/{issue_number}/comments"
+        payload = {"body": body}
+        logger.info("GitHubClient", f"Adding comment to #{issue_number}")
+        return self._post(endpoint, payload)
+
+    def get_run_jobs(self, owner: str, repo: str, run_id: int) -> Dict:
+        """
+        Gets the jobs for a workflow run.
+
+        Args:
+            owner: GitHub username or organisation.
+            repo: Repository name.
+            run_id: The workflow run ID.
+
+        Returns:
+            Dict containing a list of jobs.
+        """
+        endpoint = f"/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
+        return self._get(endpoint)
+
+    def get_job_logs(self, owner: str, repo: str, job_id: int) -> str:
+        """
+        Fetches the plain text logs for a specific job.
+
+        Args:
+            owner: GitHub username or organisation.
+            repo: Repository name.
+            job_id: The job ID.
+
+        Returns:
+            The raw log output as a string.
+        """
+        endpoint = f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs"
+        return self._get_raw(endpoint)
+
     @staticmethod
     def parse_repo_url(url: str):
         """
@@ -140,12 +203,23 @@ class GitHubClient:
             body = e.read().decode("utf-8")
             raise RuntimeError(f"GitHub API error {e.code}: {body}") from e
 
-    def _get(self, endpoint: str) -> list:
+    def _get(self, endpoint: str) -> Any:
         url = self.API_BASE + endpoint
         req = urllib.request.Request(url, headers=self._headers(), method="GET")
         try:
             with urllib.request.urlopen(req) as resp:
                 return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8")
+            raise RuntimeError(f"GitHub API error {e.code}: {body}") from e
+
+    def _get_raw(self, endpoint: str) -> str:
+        url = self.API_BASE + endpoint
+        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                # Some endpoints like logs might return redirects
+                return resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             raise RuntimeError(f"GitHub API error {e.code}: {body}") from e

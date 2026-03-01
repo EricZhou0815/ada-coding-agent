@@ -7,11 +7,14 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 ## 🚀 Features
 
 - **Full SDLC Integration**: Provide a GitHub URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
-- **Multi-Agent Pipeline**: Specialized agents — `PlanningAgent`, `CodingAgent`, `ValidationAgent` — each with a focused, autonomous role.
-- **Epic-Level Orchestration**: Feed a full Agile backlog and Ada breaks each story into atomic tasks, executes them sequentially, and persists the results.
-- **Global Quality Gates**: Drop `.md` or `.txt` files into `.rules/` to define engineering standards. The `ValidationAgent` enforces these on every task.
+- **Direct Multi-Agent Pipeline**: Specialized agents — `CodingAgent` and `ValidationAgent` — work in tandem to implement full User Stories in a single reactive loop.
+- **Epic-Level Orchestration**: Feed a full Agile backlog and Ada executes each story sequentially in isolated, fresh sandboxes.
+- **Global Quality Gates**: Drop `.md` or `.txt` files into `.rules/` to define engineering standards. The `ValidationAgent` enforces these on every story.
 - **Git & GitHub Integration**: Creates feature branches per story, commits with structured messages, pushes, and opens PRs using a configurable template.
-- **Isolated Sandbox Execution**: Each task runs in its own isolated workspace, copied fresh from the current repo state. Results merge back sequentially.
+- **Isolated Sandbox Execution**: Each story runs in its own isolated workspace, copied fresh from the repository state.
+- **Closed-Loop Development**:
+    - **CI/CD Auto-Fix**: Ada listens to GitHub Webhooks. If a CI pipeline fails on her branch, she automatically downloads the logs, clones the broken state, and pushes a patch.
+    - **Human Feedback**: Comment on an Ada PR, and she will autonomously apply your requested changes and push the update.
 - **LLM Support**: Auto-detects **Groq** (recommended, extremely fast) or **OpenAI** from your environment keys.
 - **Observability**: Rich ANSI-coloured terminal output with agent thoughts, tool calls, byte-level result summaries, and retry explanations.
 - **Mock Mode**: Fully functional mock LLM layer for testing without consuming API credits.
@@ -38,23 +41,24 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 │     c. GitManager.commit() + push()   → structured commit message   │
 │     d. GitHubClient.create_pr()       → PR from template            │
 │  3. Workspace cleanup                 → success: clean | fail: keep │
-└─────────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────┬──────────────────────────────────────────┘
+                                          │
+                  ┌───────────────────────┴───────────────────────┐
+                  │                                               │
+┌─────────────────▼───────────────┐               ┌───────────────▼─────────────────┐
+│  EVENT LOOP (Webhooks)          │               │  SDLC PIPELINE (Backlog)        │
+│  api/webhooks/github.py         │               │  orchestrator/epic_orch...      │
+│                                 │               │                                 │
+│  • ❌ CI Fails → fix_ci_...     │               │  • Sequential story execution    │
+│  • 💬 Comment → apply_feed...   │               │  • No pre-planning required     │
+└─────────────────────────────────┘               └─────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────────────┐
-│  EpicOrchestrator     (orchestrator/epic_orchestrator.py)           │
+│  SandboxBackend    (isolation/sandbox.py)   [per story]             │
 │                                                                     │
-│  Per story:                                                          │
-│  1. PlanningAgent scans repo → generates [T1, T2, T3] as JSON       │
-│  2. Saves tasks to  tasks/<STORY-ID>/<task_id>.json                 │
-│  3. Runs each task sequentially inside a fresh SandboxBackend       │
-└─────────────────────────────────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│  SandboxBackend    (isolation/sandbox.py)   [per task]              │
-│                                                                     │
-│  • Copies repo → .ada_sandbox/task_<id>/repo                       │
+│  • Copies repo → .ada_sandbox/story_<id>/repo                      │
 │  • Runs PipelineOrchestrator  [CodingAgent → ValidationAgent]       │
-│  • Copies results back to repo (so next task sees updated code)     │
+│  • Direct Story Execution: Planning & Coding in one loop             │
 └─────────────────────────────────────────────────────────────────────┘
                              │
               ┌──────────────┴──────────────────┐
@@ -74,8 +78,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 | Agent | Role |
 |---|---|
-| `PlanningAgent` | Reads the codebase and translates a User Story into an ordered list of atomic tasks |
-| `CodingAgent` | Autonomously writes code, runs commands, and verifies changes locally |
+| `CodingAgent` | Autonomously plans and writes code, runs commands, and verifies changes locally |
 | `ValidationAgent` | Scans the codebase against `.rules/` quality gates; outputs `PASS` or `FAIL` |
 
 ### Orchestration Layers
@@ -94,12 +97,11 @@ For each User Story:
 
   1.  git checkout -b ada/STORY-1-password-reset
 
-  2.  PlanningAgent scans codebase
-      → saves tasks/STORY-1/STORY1-T1.json, STORY1-T2.json ...
+  2.  SandboxBackend isolates repo
 
-  3.  For each task (sequential):
-        SandboxBackend isolates → CodingAgent codes → ValidationAgent gates
-        → merge results back to branch working tree
+  3.  PipelineOrchestrator (DirectMode):
+        CodingAgent explores → plans → codes → ValidationAgent gates
+        (Continuous loop inside the same session)
 
   4.  git add . && git commit -m "feat(STORY-1): Add password reset via email
                                   - ✅ User can request reset link ..."
@@ -247,6 +249,26 @@ curl -X POST "http://127.0.0.1:8000/api/v1/execute" \
            ]
          }'
 ```
+
+#### 🔄 Closed-Loop Feedback (Webhooks)
+
+Ada can react to external stimuli (CI failures, human comments) via GitHub Webhooks.
+
+1. **Setup a Tunnel**: Use a tool like [ngrok](https://ngrok.com/) to expose your local API:
+   ```bash
+   ngrok http 8000
+   ```
+2. **Configure GitHub**:
+   - Go to your Repository Settings → **Webhooks** → **Add Webhook**.
+   - **Payload URL**: `https://<your-ngrok-url>/api/v1/webhooks/github`
+   - **Content type**: `application/json`
+   - **Events**: Select "Let me select individual events" and check:
+     - ✅ **Workflow runs** (Trigger CI fixing)
+     - ✅ **Issue comments** (Trigger feedback application)
+
+3. **Profit**:
+   - If CI fails on an `ada/` branch, Ada will automatically download the logs, fix the bug, and push the update.
+   - If you comment on a PR, Ada will apply the changes you requested.
 
 ---
 

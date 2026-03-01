@@ -17,26 +17,16 @@ def agent_2():
     agent.run = Mock()
     return agent
 
-def test_pipeline_success_first_try(agent_1, agent_2):
+def test_pipeline_success_first_try(agent_1):
     agent_1.run.return_value = AgentResult(success=True)
-    agent_2.run.return_value = AgentResult(success=True)
     
-    executor = PipelineOrchestrator([agent_1, agent_2], max_retries=3)
+    executor = PipelineOrchestrator([agent_1], max_retries=3)
     
-    task = {"task_id": "T1", "title": "Test Title"}
-    completed_tasks = ["T0"]
-    result = executor.execute_task(task, "/repo", completed_tasks)
+    story = {"story_id": "S1", "title": "Test Story"}
+    result = executor.execute_story(story, "/repo")
     
     assert result is True
-    # Verify task ID appended
-    assert "T1" in completed_tasks
-    # the mock records the final state of the list.
-    agent_1.run.assert_called_once_with(task, "/repo", {
-        "completed_tasks": ["T0", "T1"],
-        "global_rules": []
-    })
-    agent_2.run.assert_called_once_with(task, "/repo", {
-        "completed_tasks": ["T0", "T1"],
+    agent_1.run.assert_called_once_with(story, "/repo", {
         "global_rules": []
     })
 
@@ -49,9 +39,9 @@ def test_pipeline_success_with_retries(agent_1, agent_2):
     ]
     
     executor = PipelineOrchestrator([agent_1, agent_2], max_retries=3)
-    task = {"task_id": "T2", "title": "Retry Title"}
+    story = {"story_id": "S2", "title": "Retry Story"}
     
-    result = executor.execute_task(task, "/repo", completed_tasks=[])
+    result = executor.execute_story(story, "/repo")
     
     assert result is True
     assert agent_1.run.call_count == 2
@@ -66,9 +56,9 @@ def test_pipeline_max_retries(agent_1, agent_2):
     agent_1.run.return_value = AgentResult(success=False)
     
     executor = PipelineOrchestrator([agent_1, agent_2], max_retries=2)
-    task = {"task_id": "T3", "title": "Impossible Title"}
+    story = {"story_id": "S3", "title": "Impossible Story"}
     
-    result = executor.execute_task(task, "/repo", completed_tasks=[])
+    result = executor.execute_story(story, "/repo")
     
     assert result is False
     assert agent_1.run.call_count == 2

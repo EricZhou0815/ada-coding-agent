@@ -15,13 +15,13 @@ from orchestrator.task_executor import PipelineOrchestrator
 from orchestrator.rule_provider import LocalFolderRuleProvider
 
 def main():
-    task_file = sys.argv[1]
+    story_file = sys.argv[1]
     repo_path = sys.argv[2]
 
     llm_client = Config.get_llm_client()
+    tools = Tools()
     coding_agent = CodingAgent(llm_client, tools)
-    validation_agent = ValidationAgent(llm_client, tools)
-    agents_pipeline = [coding_agent, validation_agent]
+    agents_pipeline = [coding_agent]
     rule_providers = [LocalFolderRuleProvider()]
     executor = PipelineOrchestrator(
         agents_pipeline, 
@@ -29,11 +29,10 @@ def main():
         max_retries=25
     )
 
-    with open(task_file) as f:
-        task = json.load(f)
+    with open(story_file) as f:
+        story = json.load(f)
 
-    completed_tasks = []
-    executor.execute_task(task, repo_path, completed_tasks)
+    executor.execute_story(story, repo_path)
 
 if __name__ == "__main__":
     main()

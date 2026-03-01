@@ -20,30 +20,29 @@ class CodingAgent(BaseAgent):
         super().__init__("Coder", llm_client, tools)
         self.finished = False
 
-    def run(self, task: Dict, repo_path: str, context: Dict) -> AgentResult:
+    def run(self, story: Dict, repo_path: str, context: Dict) -> AgentResult:
         """
-        Executes an atomic task autonomously within the given repository.
+        Executes a full User Story autonomously within the given repository.
 
         The agent drives a reasoning loop where it prompts the LLM, processes tool calls,
-        and continues until it declares the task "finished" or hits the maximum iteration count.
+        and continues until it declares the story "finished" or hits the maximum iteration count.
 
         Args:
-            atomic_task (Dict): A dictionary representing the task to accomplish (title, description, criteria).
+            story (Dict): A dictionary representing the User Story (title, description, criteria).
             repo_path (str): The filesystem path to the repository snapshot or sandbox.
-            completed_tasks (List[str]): A list of previously completed task IDs for context.
-            validation_feedback (List[str], optional): Feedback from the validation agent if retrying. Defaults to None.
+            context (Dict): Global context including completed stories, rules, etc.
         """
         self.finished = False
         self.llm.reset_conversation()
         
-        completed_tasks = context.get("completed_tasks", [])
         validation_feedback = context.get("validation_feedback", [])
         global_rules = context.get("global_rules", [])
         
-        prompt = self._build_prompt(task, repo_path, completed_tasks, validation_feedback, global_rules)
+        prompt = self._build_prompt(story, repo_path, validation_feedback, global_rules)
         
         # Run Ada's reasoning loop
-        max_tool_calls = 10
+        # Increased for full story execution
+        max_tool_calls = 80
         tool_call_count = 0
         
         while not self.finished and tool_call_count < max_tool_calls:
@@ -53,9 +52,9 @@ class CodingAgent(BaseAgent):
             if response.get("function_call"):
                 tool_call_count += 1
                 result = self._execute_tool(response["function_call"])
-                prompt = f"Tool execution result: {json.dumps(result)}\n\nContinue with your task or declare 'finish' if complete."
+                prompt = f"Tool execution result: {json.dumps(result)}\n\nContinue or declare 'finish' if the entire story is complete."
             
-            # Check if Ada declares task finished
+            # Check if Ada declares story finished
             if response.get("content") and "finish" in response["content"].lower():
                 self.finished = True
                 logger.thought(self.name, response['content'])
@@ -65,7 +64,7 @@ class CodingAgent(BaseAgent):
                 logger.thought(self.name, response['content'])
         
         if tool_call_count >= max_tool_calls:
-            logger.warning(self.name, f"Reached maximum tool calls ({max_tool_calls}), completing task.")
+            logger.warning(self.name, f"Reached maximum tool calls ({max_tool_calls}), completing story phase.")
             self.finished = True
             
         return AgentResult(success=True, output="Coding phase completed.")
@@ -100,14 +99,13 @@ class CodingAgent(BaseAgent):
             logger.tool_result(self.name, success=False)
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
-    def _build_prompt(self, atomic_task: Dict, repo_path: str, completed_tasks: List[str], validation_feedback: List[str], global_rules: List[str]) -> str:
+    def _build_prompt(self, story: Dict, repo_path: str, validation_feedback: List[str], global_rules: List[str]) -> str:
         """
         Constructs the system prompt to instruct the LLM on its objective and constraints.
 
         Args:
-            atomic_task (Dict): The task configuration.
+            story (Dict): The full user story configuration.
             repo_path (str): The workspace repository path.
-            completed_tasks (List[str]): A list of previously completed task IDs.
             validation_feedback (List[str]): Any feedback provided from prior validation attempts.
             global_rules (List[str]): Quality gates to adhere to.
 
@@ -118,24 +116,29 @@ class CodingAgent(BaseAgent):
         rules_text = "\n".join(global_rules) if global_rules else "None"
         
         return f"""
-You are Ada, an autonomous software engineer AI.
+You are Ada, an autonomous software engineer AI. Your goal is to implement a full User Story end-to-end.
 
-Atomic Task:
-{atomic_task.get('title', 'Unknown')}
+User Story:
+{story.get('title', 'Unknown')}
 Description:
-{atomic_task.get('description', '')}
-Dependencies: {atomic_task.get('dependencies', [])}
-Acceptance Criteria: {atomic_task.get('acceptance_criteria', [])}
+{story.get('description', '')}
+Acceptance Criteria: {story.get('acceptance_criteria', [])}
+
 Global Quality Rules:
 {rules_text}
 
 Repo Path: {repo_path}
-Previously Completed Tasks: {completed_tasks}
 Validation Feedback: {validation_feedback if validation_feedback else "None"}
 
-Decide how to complete this task step by step. Use your provided tools to read the codebase, make changes, and verify them.
-CRITICAL: You MUST adhere to all Global Quality Rules during implementation.
-CRITICAL: You MUST use the `run_command` tool to execute your code and verify it works locally before declaring 'finish'.
-When finished, include the word "finish" in your response.
+WORKFLOW:
+1. Explore the codebase to understand the existing architecture.
+2. Formulate an implementation plan.
+3. Use your tools to execute the plan step-by-step.
+4. Use the `run_command` tool to run tests and verify your changes.
+5. If you break something, fix it immediately.
+
+CRITICAL: You MUST adhere to all Global Quality Rules.
+CRITICAL: You MUST verify all changes with tests before finishing.
+When the entire User Story is implemented and verified, include the word "finish" in your response.
 Act as a human engineer named Ada.
 """

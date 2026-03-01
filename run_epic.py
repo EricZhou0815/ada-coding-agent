@@ -1,9 +1,8 @@
 """
 run_epic.py - Ada's Epic-level runner.
 
-Reads a JSON file containing one or more User Stories, uses the PlanningAgent
-to break each story into atomic tasks, persists those tasks to disk, then
-executes them sequentially through isolated Sandboxes.
+Reads a JSON file containing one or more User Stories and
+executes them sequentially through isolated Sandboxes in Direct Mode.
 
 Usage:
     python3 run_epic.py stories/epic_backlog.json repo_snapshot
@@ -48,15 +47,15 @@ def main():
     logger.info("ADA", "="*70)
     print()
 
-    # Build LLM client + read-only planning tools
+    # Build LLM client + tools
     llm_client = Config.get_llm_client()
-    planning_tools = Tools()   # Tools() with no path = unrestricted (for planning only)
+    tools = Tools()
 
     rule_providers = [LocalFolderRuleProvider()]
 
     orchestrator = EpicOrchestrator(
         llm_client=llm_client,
-        tools=planning_tools,
+        tools=tools,
         tasks_output_dir="tasks",
         rule_providers=rule_providers
     )

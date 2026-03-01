@@ -6,6 +6,8 @@ from pydantic import BaseModel, HttpUrl
 from typing import List, Dict, Any, Optional
 
 from api.database import SessionLocal, StoryJob, get_db
+from api.webhooks import vcs as vcs_webhooks
+
 # In production, we drop tasks directly into Redis via Celery
 from worker.tasks import execute_sdlc_story
 
@@ -39,6 +41,8 @@ class JobStatusResponse(BaseModel):
     created_at: str
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
+
+app.include_router(vcs_webhooks.router, prefix="/api/v1/webhooks")
 
 @app.post("/api/v1/execute", response_model=List[JobResponse])
 def execute_stories(req: ExecutionRequest, db: SessionLocal = Depends(get_db)):

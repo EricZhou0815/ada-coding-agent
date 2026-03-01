@@ -19,19 +19,19 @@ class ValidationAgent(BaseAgent):
         """
         super().__init__("Validator", llm_client, tools)
 
-    def run(self, task: Dict, repo_path: str, context: Dict) -> AgentResult:
+    def run(self, story: Dict, repo_path: str, context: Dict) -> AgentResult:
         """
         Validates the state of the codebase against acceptance criteria using the LLM.
 
         Args:
-            task (Dict): The dictionary containing the atomic task definition.
+            story (Dict): The dictionary containing the user story definition.
             repo_path (str): The path to the repository being evaluated.
             context (Dict): the shared pipeline context.
 
         Returns:
             AgentResult: Result mapping containing success boolean and feedback array.
         """
-        task = task or {}
+        story = story or {}
         global_rules = context.get("global_rules", [])
 
         if not global_rules:
@@ -39,7 +39,7 @@ class ValidationAgent(BaseAgent):
             return AgentResult(success=True, output="No global quality rules specified.")
 
         self.llm.reset_conversation()
-        prompt = self._build_prompt(task, repo_path, global_rules)
+        prompt = self._build_prompt(story, repo_path, global_rules)
 
         max_tool_calls = 5
         tool_call_count = 0
@@ -59,19 +59,22 @@ class ValidationAgent(BaseAgent):
 
             content = response.get("content", "")
             if content:
-                logger.thought(self.name, response["content"])
-                if response["content"].strip() == "PASS":
+                logger.thought(self.name, content)
+                upper_content = content.upper()
+                if "PASS" in upper_content:
                     passed = True
                     finished = True
-                elif response["content"].strip().startswith("FAIL"):
-                    # Extract the feedback block from the LLM's response
-                    text = response["content"]
-                    reason = text[4:].strip() if len(text) > 4 else "Unspecified criteria failure."
-                    feedback.append(reason)
+                elif "FAIL" in upper_content:
+                    # Extract feedback after FAIL or just use the whole message
+                    feedback.append(content)
                     passed = False
                     finished = True
                 else:
-                    prompt = "Please finish your evaluation. Say 'PASS' if all quality rules are met, or 'FAIL' if any are not met, then explain."
+                    prompt = "Please finish your evaluation. Say 'PASS' if all quality rules are met, or 'FAIL' if any are not met, then provide feedback."
+            else:
+                # If no content and no function call, something is wrong
+                prompt = "I didn't receive an evaluation. Please state 'PASS' or 'FAIL'."
+                tool_call_count += 1 # Avoid infinite loop if LLM is empty
 
         if tool_call_count >= max_tool_calls:
             feedback.append("Validator reached maximum iterations and failed to conclude.")
@@ -111,16 +114,17 @@ class ValidationAgent(BaseAgent):
             logger.tool_result(self.name, success=False)
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
-    def _build_prompt(self, task: Dict, repo_path: str, global_rules: list) -> str:
+    def _build_prompt(self, story: Dict, repo_path: str, global_rules: list) -> str:
         """
         Constructs the system prompt to instruct the Validation Agent.
         """
         rules_text = "\n".join(global_rules) if global_rules else "None specified."
         
         return f"""
-You are the autonomous Validation Agent. Your job is to verify if a software task was completed successfully by ensuring the Global Quality Rules are adhered to.
+You are the autonomous Validation Agent. Your job is to verify if a User Story was implemented successfully by ensuring the Global Quality Rules are adhered to.
 
-Task Title: {task.get('title', 'Unknown')}
+Story Title: {story.get('title', 'Unknown')}
+Story Description: {story.get('description', 'Unknown')}
 Global Quality Rules: {rules_text}
 
 Repo Path: {repo_path}
