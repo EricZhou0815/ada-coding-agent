@@ -1,0 +1,37 @@
+[
+    {
+        "story_id": "STORY-1",
+        "title": "As a user, I want to reset my password via email",
+        "description": "Users who forget their passwords need a way to securely request a reset link and set a new password. The system should send an email with a secure token, and provide an endpoint to submit a new password using that token.",
+        "acceptance_criteria": [
+            "User can submit their email to request a reset link.",
+            "System generates a secure, time-limited token for the reset link.",
+            "System sends an email containing the reset link (or logs it if email service is mocked).",
+            "User can submit a new password along with the valid token to update their credentials.",
+            "Token is invalidated after successful use or expiration."
+        ]
+    },
+    {
+        "story_id": "STORY-2",
+        "title": "As an admin, I want to manage platform users",
+        "description": "Platform administrators need a dashboard backend to view all registered users and delete accounts that violate terms of service. These endpoints should be strictly protected.",
+        "acceptance_criteria": [
+            "GET /admin/users returns a list of all registered users.",
+            "DELETE /admin/users/<username> allows deletion of a specific user account.",
+            "Only authenticated users with an 'admin' role in their JWT can access these endpoints.",
+            "Non-admin users receive a 403 Forbidden status."
+        ]
+    },
+    {
+        "story_id": "STORY-3",
+        "title": "As a user, I want to upload a profile picture",
+        "description": "To personalize their accounts, users should be able to upload a small image file that will serve as their avatar across the platform.",
+        "acceptance_criteria": [
+            "POST /profile/avatar accepts multipart form data containing an image file.",
+            "Endpoint strictly validates that the file is an image (e.g., JPEG, PNG) and under 2MB.",
+            "Images are saved securely on the server or a mock storage service.",
+            "GET /profile returns the URL or path to the user's uploaded avatar.",
+            "Users must be authenticated to upload."
+        ]
+    }
+]

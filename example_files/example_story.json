@@ -1,0 +1,12 @@
+{
+    "story_id": "STORY-1",
+    "title": "As a user, I want to reset my password via email",
+    "description": "Users who forget their passwords need a way to securely request a reset link and set a new password. The system should send an email with a secure token, and provide an endpoint to submit a new password using that token.",
+    "acceptance_criteria": [
+        "User can submit their email to request a reset link.",
+        "System generates a secure, time-limited token for the reset link.",
+        "System sends an email containing the reset link (or logs it if email service is mocked).",
+        "User can submit a new password along with the valid token to update their credentials.",
+        "Token is invalidated after successful use or expiration."
+    ]
+}

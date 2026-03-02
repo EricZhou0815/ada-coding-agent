@@ -1,0 +1,19 @@
+[
+    {
+        "story_id": "STORY-P8",
+        "title": "As a developer, I want ByteSoul's memory to use SQLite instead of flat JSON files so the agent can scale to thousands of goals, lessons, and tools without performance degradation",
+        "description": "Currently all agent memory (goals, lessons, tools, episodic logs, soul) is stored as flat JSON files in the memory/ directory. As the agent runs 24/7 and accumulates data over time, JSON becomes unmanageable — it's loaded fully into memory on every read, and concurrent writes can corrupt state. Migrate the MemoryManager to use a single SQLite database (memory/byte_soul.db) while keeping the existing MemoryManager interface identical so main.py requires zero changes.",
+        "acceptance_criteria": [
+            "A SQLite database file is created at memory/byte_soul.db on first run.",
+            "The database has tables for: goals, lessons, tools, episodic_logs, and soul.",
+            "MemoryManager.load_goals() and save_goals() read/write from the database, not goals.json.",
+            "MemoryManager.load_lessons() and save_lessons() read/write from the database, not lessons.json.",
+            "MemoryManager.load_tools() and save_tools() read/write from the database, not tools.json.",
+            "MemoryManager.load_soul() and save_soul() read/write from the database, not soul.json.",
+            "MemoryManager.save_episodic_log() and load_episodic_log() use the database, not episodic/ folder.",
+            "A one-time migration script (migrate_to_sqlite.py) reads existing JSON files and inserts their data into the database if they exist.",
+            "main.py runs without any changes and the agent loop behaves identically to before.",
+            "No new third-party dependencies are introduced — use Python's built-in sqlite3 module only."
+        ]
+    }
+]

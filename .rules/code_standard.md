@@ -1,0 +1,1 @@
+Code should modulized and easy to extend or scale, easy to read, maintain, and debug. Use proper naming conventions and comments. Use proper error handling and logging. Use proper session management. Use proper design patterns. Use proper testing. Use proper documentation.
