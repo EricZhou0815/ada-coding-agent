@@ -47,3 +47,28 @@ class Config:
         else:
             from agents.llm_client import LLMClient
             return LLMClient(provider=provider, model=cls.get_llm_model())
+
+    @classmethod
+    def get_isolation_backend_type(cls) -> str:
+        """
+        Determine which isolation backend to use.
+        Options: "sandbox" (default), "docker", "ecs"
+        """
+        return os.getenv("ADA_ISOLATION_BACKEND", "sandbox").lower()
+
+    @classmethod
+    def get_isolation_backend(cls, workspace_root: str = None):
+        """
+        Instantiate and return the configured isolation backend.
+        """
+        backend_type = cls.get_isolation_backend_type()
+        
+        if backend_type == "docker":
+            from isolation.docker_backend import DockerBackend
+            return DockerBackend()
+        elif backend_type == "ecs":
+            from isolation.ecs_backend import ECSBackend
+            return ECSBackend()
+        else:
+            from isolation.sandbox import SandboxBackend
+            return SandboxBackend(workspace_root=workspace_root)

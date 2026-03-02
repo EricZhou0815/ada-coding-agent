@@ -4,12 +4,13 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, String, DateTime, Text, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Get database URL from env, default to local SQLite
+# Get database URL from env, default to local SQLite for local dev if not provided
+# In production/docker, this will be: postgresql://ada_user:ada_password@db:5432/ada_db
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ada_jobs.db")
 
 engine = create_engine(
     DATABASE_URL, 
-    # check_same_thread is needed for SQLite, ignored by others
+    # connect_args is needed for SQLite, ignored by others like Postgres
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -21,29 +22,18 @@ class StoryJob(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     repo_url = Column(String, nullable=False)
-    story_title = Column(String, nullable=True) # Descriptive name for listing
+    story_title = Column(String, nullable=True) 
     status = Column(String, default="PENDING")  # PENDING, RUNNING, SUCCESS, FAILED
     logs = Column(Text, default="[]")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# Create tables (In a real production environment, we would use Alembic)
+def init_db():
+    Base.metadata.create_all(bind=engine)
 
-# ── Development Migration Hack ──────────────────────────────────────────────
-# In dev, we often add columns to SQLite; SQLAlchemy metadata.create_all() does 
-# NOT do migrations. This ensures the story_title column exists.
-# ─────────────────────────────────────────────────────────────────────────────
-if "sqlite" in DATABASE_URL:
-    with engine.connect() as conn:
-        try:
-            # Check if story_title exists
-            conn.execute(text("SELECT story_title FROM story_jobs LIMIT 1"))
-        except Exception:
-            # If it fails, add the column
-            print("🚀 Migrating DB: Adding 'story_title' column to story_jobs...")
-            conn.execute(text("ALTER TABLE story_jobs ADD COLUMN story_title VARCHAR"))
-            conn.commit()
+# Run initialization on import for simplicity in this stage
+init_db()
 
 def get_db():
     db = SessionLocal()

@@ -12,7 +12,24 @@ services:
       timeout: 3s
       retries: 5
 
-  # 2. Ada API Server (The Factory Intake)
+  # 2. Database (Production Grade Persistence)
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=ada_user
+      - POSTGRES_PASSWORD=ada_password
+      - POSTGRES_DB=ada_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ada_user -d ada_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Ada API Server (The Factory Intake)
   api:
     build: 
       context: .
@@ -21,37 +38,40 @@ services:
       - "8000:80"
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite:////app/data/ada_jobs.db
+      - DATABASE_URL=postgresql://ada_user:ada_password@db:5432/ada_db
       - PYTHONPATH=/app
     volumes:
       - ada_data:/app/data
-      - ./.env:/app/.env  # Mount local .env for API keys
+      - ./.env:/app/.env
     depends_on:
       redis:
         condition: service_healthy
+      db:
+        condition: service_healthy
 
-  # 3. Ada Celery Worker (The Factory Floor)
+  # 4. Ada Celery Worker (The Factory Floor)
   worker:
     build: 
       context: .
       dockerfile: docker/Dockerfile
-    # Override the default API command to start the worker instead
     command: ["celery", "-A", "worker.tasks", "worker", "--loglevel=info", "--concurrency=2"]
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite:////app/data/ada_jobs.db
+      - DATABASE_URL=postgresql://ada_user:ada_password@db:5432/ada_db
       - ADA_TMP_DIR=/tmp/ada_runs
       - PYTHONPATH=/app
     volumes:
       - ada_data:/app/data
-      - ./.env:/app/.env   # API keys must be available to workers
-      # Mount the host machine's docker socket so the worker could theoretically spawn docker isolation backends
+      - ./.env:/app/.env
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       redis:
+        condition: service_healthy
+      db:
         condition: service_healthy
       api:
         condition: service_started
 
 volumes:
   ada_data:
+  postgres_data:

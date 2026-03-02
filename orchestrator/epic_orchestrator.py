@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from orchestrator.rule_provider import RuleProvider
-from isolation.sandbox import SandboxBackend
 from utils.logger import logger
+from config import Config
 
 class EpicOrchestrator:
     """
@@ -58,14 +58,19 @@ class EpicOrchestrator:
 
     def _run_story_in_sandbox(self, story: Dict, repo_path: str) -> bool:
         """
-        Spins up a fresh SandboxBackend for a single story and executes it.
+        Spins up a fresh isolation backend for a single story and executes it.
         """
         # Isolate the sandbox root inside the current workspace (parent of repo_path) to prevent global collisions
         sandbox_root = os.path.join(os.path.dirname(os.path.abspath(repo_path)), ".sandbox")
-        sandbox = SandboxBackend(workspace_root=sandbox_root)
+        
+        # Call the generic isolation backend (Sandbox, Docker, or ECS)
+        backend = Config.get_isolation_backend(workspace_root=sandbox_root)
+        
+        logger.info("EpicOrchestrator", f"Using isolation backend: {backend.get_name()}")
+        
         try:
-            sandbox.setup(story, repo_path)
-            success = sandbox.execute(story, repo_path)
+            backend.setup(story, repo_path)
+            success = backend.execute(story, repo_path)
             return success
         finally:
-            sandbox.cleanup()
+            backend.cleanup()
