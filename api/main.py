@@ -1,7 +1,7 @@
 import os
 import json
 from uuid import uuid4
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from typing import List, Dict, Any, Optional, Generator
@@ -64,15 +64,51 @@ class JobSummary(BaseModel):
     story_title: Optional[str]
     created_at: str
 
+# ── Security Dependencies ───────────────────────────────────────────────────
+
+async def verify_api_key(x_api_key: str = Header(..., description="API Key for authentication")):
+    """
+    Verify API key from X-Api-Key header.
+    
+    Keys are configured via API_KEYS environment variable (comma-separated).
+    Example: API_KEYS=key1,key2,key3
+    
+    Raises:
+        HTTPException: 401 if key is invalid or missing
+    """
+    valid_keys_str = os.getenv("API_KEYS", "")
+    if not valid_keys_str:
+        # No keys configured - security risk! Log warning but allow in dev
+        # In production, this should fail hard
+        import logging
+        logging.warning("⚠️  API_KEYS not configured - API authentication is DISABLED")
+        return "dev-mode-no-auth"
+    
+    valid_keys = [k.strip() for k in valid_keys_str.split(",") if k.strip()]
+    
+    if not x_api_key or x_api_key not in valid_keys:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key. Provide valid X-Api-Key header."
+        )
+    
+    return x_api_key
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 app.include_router(vcs_webhooks.router, prefix="/api/v1/webhooks")
 
 @app.post("/api/v1/execute", response_model=List[JobResponse])
-def execute_stories(req: ExecutionRequest, db: SessionLocal = Depends(get_db)):
+def execute_stories(
+    req: ExecutionRequest,
+    db: SessionLocal = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
     """
     Submits one or more user stories to the Ada execution queue.
     Each story gets its own isolated sandbox execution.
+    
+    **Authentication Required:** Provide X-Api-Key header with valid API key.
     """
     jobs_created = []
     

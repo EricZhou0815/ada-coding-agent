@@ -2,6 +2,7 @@ import os
 import hmac
 import hashlib
 import re
+import redis
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Header
 from pydantic import BaseModel
 import logging
@@ -15,6 +16,11 @@ logger = logging.getLogger("VCSWebhooks")
 
 # Webhook secret for HMAC validation - REQUIRED in production
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+# Redis for webhook deduplication (prevents processing the same event twice)
+# GitHub retries webhooks on timeout/5xx, we need idempotency
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.from_url(REDIS_URL)
 
 # Trigger prefix for Ada commands in PR comments
 ADA_TRIGGER_PREFIX = "@ada-ai"
@@ -119,11 +125,38 @@ async def github_webhook_handler(
     request: Request, 
     background_tasks: BackgroundTasks,
     x_hub_signature_256: Optional[str] = Header(None),
+    x_github_delivery: Optional[str] = Header(None),
 ):
     """
     Receives events specifically from GitHub webhooks.
+    
+    Features:
+    - HMAC signature verification for security
+    - Idempotency via X-GitHub-Delivery header (prevents duplicate processing)
+    - Automatic CI failure fixes on Ada-managed branches
+    - PR comment handling for @ada-ai mentions
     """
     
+    # Step 0: Idempotency check (GitHub retries webhooks on failures)
+    if not x_github_delivery:
+        logger.warning("Missing X-GitHub-Delivery header - webhook may be spoofed")
+        # Continue anyway for backwards compatibility, but log it
+    else:
+        dedup_key = f"webhook:delivery:{x_github_delivery}"
+        
+        try:
+            # Check if we've already processed this delivery
+            if redis_client.exists(dedup_key):
+                logger.info(f"Ignoring duplicate webhook delivery: {x_github_delivery}")
+                return {"status": "ignored", "reason": "duplicate_delivery"}
+            
+            # Mark this delivery as processed (TTL: 24 hours)
+            # This prevents GitHub webhook retries from creating duplicate jobs
+            redis_client.setex(dedup_key, 86400, "processed")
+        except Exception as e:
+            logger.error(f"Redis deduplication check failed: {e}")
+            # Continue in degraded mode - better to risk duplicate than drop webhook
+        
     # Step 1: Read raw body for signature verification
     payload_body = await request.body()
     

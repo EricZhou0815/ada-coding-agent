@@ -1,0 +1,394 @@
+"""
+Extended tests for Config class to improve coverage.
+"""
+import pytest
+import os
+from unittest.mock import patch, MagicMock
+from config import Config
+
+
+class TestLLMProviderSelection:
+    """Test LLM provider auto-detection logic."""
+    
+    def test_explicit_provider_takes_priority(self):
+        """LLM_PROVIDER env var should override key-based detection."""
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "openai",
+            "GROQ_API_KEY": "gsk_test",
+            "OPENAI_API_KEY": ""
+        }):
+            assert Config.get_llm_provider() == "openai"
+    
+    def test_groq_selected_with_api_key(self):
+        """Should select groq when GROQ_API_KEY is present."""
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "",
+            "GROQ_API_KEY": "gsk_test123",
+            "OPENAI_API_KEY": ""
+        }, clear=False):
+            assert Config.get_llm_provider() == "groq"
+    
+    def test_groq_selected_with_api_keys(self):
+        """Should select groq when GROQ_API_KEYS is present."""
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "",
+            "GROQ_API_KEYS": "gsk_1,gsk_2",
+            "GROQ_API_KEY": "",
+            "OPENAI_API_KEY": ""
+        }, clear=False):
+            assert Config.get_llm_provider() == "groq"
+    
+    def test_openai_selected_with_api_key(self):
+        """Should select openai when OPENAI_API_KEY is present."""
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "",
+            "GROQ_API_KEY": "",
+            "OPENAI_API_KEY": "sk_test123"
+        }, clear=False):
+            assert Config.get_llm_provider() == "openai"
+    
+    def test_openai_selected_with_api_keys(self):
+        """Should select openai when OPENAI_API_KEYS is present."""
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "",
+            "GROQ_API_KEY": "",
+            "OPENAI_API_KEYS": "sk_1,sk_2",
+            "OPENAI_API_KEY": ""
+        }, clear=False):
+            assert Config.get_llm_provider() == "openai"
+    
+    def test_mock_fallback_no_keys(self):
+        """Should fallback to mock when no API keys are present."""
+        with patch.dict(os.environ, {
+            "LLM_PROVIDER": "",
+            "GROQ_API_KEY": "",
+            "GROQ_API_KEYS": "",
+            "OPENAI_API_KEY": "",
+            "OPENAI_API_KEYS": ""
+        }, clear=False):
+            assert Config.get_llm_provider() == "mock"
+    
+    def test_provider_case_insensitive(self):
+        """LLM_PROVIDER should be case-insensitive."""
+        with patch.dict(os.environ, {"LLM_PROVIDER": "GROQ"}):
+            assert Config.get_llm_provider() == "groq"
+
+
+class TestLLMModel:
+    """Test LLM model configuration."""
+    
+    def test_get_llm_model_from_env(self):
+        """Should return model from LLM_MODEL env var."""
+        with patch.dict(os.environ, {"LLM_MODEL": "llama-3.3-70b"}):
+            assert Config.get_llm_model() == "llama-3.3-70b"
+    
+    def test_get_llm_model_none_when_not_set(self):
+        """Should return None when LLM_MODEL not set."""
+        with patch.dict(os.environ, {"LLM_MODEL": ""}, clear=False):
+            assert Config.get_llm_model() is None
+
+
+class TestAPIKeyPool:
+    """Test API key pool creation for load balancing."""
+    
+    @patch('config.APIKeyPool')
+    def test_groq_multi_key_pool(self, mock_pool_class):
+        """Should create pool with multiple GROQ keys."""
+        with patch.dict(os.environ, {
+            "GROQ_API_KEYS": "gsk_1, gsk_2, gsk_3",
+            "GROQ_API_KEY": ""
+        }):
+            pool = Config.get_api_key_pool("groq")
+            
+            mock_pool_class.assert_called_once()
+            call_args = mock_pool_class.call_args[0][0]
+            assert call_args == ["gsk_1", "gsk_2", "gsk_3"]
+    
+    @patch('config.APIKeyPool')
+    def test_openai_multi_key_pool(self, mock_pool_class):
+        """Should create pool with multiple OPENAI keys."""
+        with patch.dict(os.environ, {
+            "OPENAI_API_KEYS": "sk_1,sk_2",
+            "OPENAI_API_KEY": ""
+        }):
+            pool = Config.get_api_key_pool("openai")
+            
+            mock_pool_class.assert_called_once()
+            call_args = mock_pool_class.call_args[0][0]
+            assert call_args == ["sk_1", "sk_2"]
+    
+    @patch('config.APIKeyPool')
+    def test_single_key_wrapped_in_pool(self, mock_pool_class):
+        """Should wrap single key in pool for consistent interface."""
+        with patch.dict(os.environ, {
+            "GROQ_API_KEYS": "",
+            "GROQ_API_KEY": "gsk_single"
+        }):
+            pool = Config.get_api_key_pool("groq")
+            
+            mock_pool_class.assert_called_once_with(["gsk_single"])
+    
+    @patch('config.APIKeyPool')
+    def test_single_key_from_multi_var(self, mock_pool_class):
+        """Should handle single key in multi-key variable."""
+        with patch.dict(os.environ, {
+            "GROQ_API_KEYS": "gsk_only_one",
+            "GROQ_API_KEY": ""
+        }):
+            pool = Config.get_api_key_pool("groq")
+            
+            mock_pool_class.assert_called_once()
+            call_args = mock_pool_class.call_args[0][0]
+            assert call_args == ["gsk_only_one"]
+    
+    def test_unsupported_provider_returns_none(self):
+        """Should return None for unsupported providers."""
+        assert Config.get_api_key_pool("anthropic") is None
+        assert Config.get_api_key_pool("unknown") is None
+    
+    def test_no_keys_returns_none(self):
+        """Should return None when no keys are configured."""
+        with patch.dict(os.environ, {
+            "GROQ_API_KEYS": "",
+            "GROQ_API_KEY": ""
+        }, clear=False):
+            assert Config.get_api_key_pool("groq") is None
+
+
+class TestLLMClient:
+    """Test LLM client instantiation."""
+    
+    @patch('config.MockLLMClient')
+    def test_force_mock_client(self, mock_client_class):
+        """Should return MockLLMClient when force_mock=True."""
+        Config.get_llm_client(force_mock=True)
+        mock_client_class.assert_called_once()
+    
+    @patch('config.LLMClient')
+    @patch('config.Config.get_api_key_pool')
+    def test_real_client_with_key_pool(self, mock_get_pool, mock_client_class):
+        """Should pass key pool to LLMClient."""
+        mock_pool = MagicMock()
+        mock_get_pool.return_value = mock_pool
+        
+        with patch.dict(os.environ, {"LLM_PROVIDER": "groq", "LLM_MODEL": "llama-3"}):
+            Config.get_llm_client()
+            
+            mock_client_class.assert_called_once_with(
+                provider="groq",
+                model="llama-3",
+                key_pool=mock_pool
+            )
+    
+    @patch('config.LLMClient')
+    @patch('config.Config.get_api_key_pool')
+    def test_real_client_without_key_pool(self, mock_get_pool, mock_client_class):
+        """Should work when no key pool is available."""
+        mock_get_pool.return_value = None
+        
+        with patch.dict(os.environ, {"LLM_PROVIDER": "openai"}):
+            Config.get_llm_client()
+            
+            mock_client_class.assert_called_once_with(
+                provider="openai",
+                model=None,
+                key_pool=None
+            )
+
+
+class TestIsolationBackend:
+    """Test isolation backend selection."""
+    
+    def test_default_isolation_backend_sandbox(self):
+        """Should default to sandbox backend."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": ""}):
+            assert Config.get_isolation_backend_type() == "sandbox"
+    
+    def test_docker_isolation_backend(self):
+        """Should select docker backend when configured."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "docker"}):
+            assert Config.get_isolation_backend_type() == "docker"
+    
+    def test_ecs_isolation_backend(self):
+        """Should select ECS backend when configured."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "ecs"}):
+            assert Config.get_isolation_backend_type() == "ecs"
+    
+    def test_backend_type_case_insensitive(self):
+        """Backend type should be case-insensitive."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "DOCKER"}):
+            assert Config.get_isolation_backend_type() == "docker"
+    
+    @patch('config.DockerBackend')
+    def test_get_docker_backend_instance(self, mock_backend):
+        """Should instantiate DockerBackend."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "docker"}):
+            Config.get_isolation_backend()
+            mock_backend.assert_called_once()
+    
+    @patch('config.ECSBackend')
+    def test_get_ecs_backend_instance(self, mock_backend):
+        """Should instantiate ECSBackend."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "ecs"}):
+            Config.get_isolation_backend()
+            mock_backend.assert_called_once()
+    
+    @patch('config.SandboxBackend')
+    def test_get_sandbox_backend_instance(self, mock_backend):
+        """Should instantiate SandboxBackend with workspace_root."""
+        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "sandbox"}):
+            Config.get_isolation_backend(workspace_root="/tmp/ada-workspace")
+            mock_backend.assert_called_once_with(workspace_root="/tmp/ada-workspace")
+
+
+class TestVCSPlatform:
+    """Test VCS platform selection."""
+    
+    def test_default_vcs_platform_github(self):
+        """Should default to github."""
+        with patch.dict(os.environ, {"VCS_PLATFORM": ""}):
+            assert Config.get_vcs_platform() == "github"
+    
+    def test_gitlab_vcs_platform(self):
+        """Should select gitlab when configured."""
+        with patch.dict(os.environ, {"VCS_PLATFORM": "gitlab"}):
+            assert Config.get_vcs_platform() == "gitlab"
+    
+    def test_vcs_platform_case_insensitive(self):
+        """VCS platform should be case-insensitive."""
+        with patch.dict(os.environ, {"VCS_PLATFORM": "GITHUB"}):
+            assert Config.get_vcs_platform() == "github"
+    
+    @patch('config.VCSClientFactory.create')
+    def test_get_vcs_client_github(self, mock_create):
+        """Should create GitHub client via factory."""
+        with patch.dict(os.environ, {"VCS_PLATFORM": "github"}):
+            Config.get_vcs_client()
+            mock_create.assert_called_once_with("github")
+    
+    @patch('config.VCSClientFactory.create')
+    def test_get_vcs_client_gitlab(self, mock_create):
+        """Should create GitLab client via factory."""
+        with patch.dict(os.environ, {"VCS_PLATFORM": "gitlab"}):
+            Config.get_vcs_client()
+            mock_create.assert_called_once_with("gitlab")
+
+
+class TestAdaBranchManagement:
+    """Test Ada branch management configuration."""
+    
+    def test_default_branch_prefix(self):
+        """Should default to 'ada-ai/' prefix."""
+        with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": ""}):
+            assert Config.get_ada_branch_prefix() == "ada-ai/"
+    
+    def test_custom_branch_prefix(self):
+        """Should use custom branch prefix from env."""
+        with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": "bot/"}):
+            assert Config.get_ada_branch_prefix() == "bot/"
+    
+    def test_is_ada_managed_branch_true(self):
+        """Should recognize Ada-managed branches."""
+        with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": "ada-ai/"}):
+            assert Config.is_ada_managed_branch("ada-ai/feature-123") is True
+            assert Config.is_ada_managed_branch("ada-ai/fix-bug") is True
+    
+    def test_is_ada_managed_branch_false(self):
+        """Should not recognize non-Ada branches."""
+        with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": "ada-ai/"}):
+            assert Config.is_ada_managed_branch("main") is False
+            assert Config.is_ada_managed_branch("feature/user-story") is False
+            assert Config.is_ada_managed_branch("ada-feature") is False
+    
+    def test_should_handle_all_prs_false_by_default(self):
+        """Should not handle all PRs by default."""
+        with patch.dict(os.environ, {"ADA_HANDLE_ALL_PRS": ""}):
+            assert Config.should_handle_all_prs() is False
+    
+    def test_should_handle_all_prs_true(self):
+        """Should handle all PRs when configured."""
+        with patch.dict(os.environ, {"ADA_HANDLE_ALL_PRS": "true"}):
+            assert Config.should_handle_all_prs() is True
+    
+    def test_should_handle_all_prs_case_insensitive(self):
+        """ADA_HANDLE_ALL_PRS should be case-insensitive."""
+        with patch.dict(os.environ, {"ADA_HANDLE_ALL_PRS": "TRUE"}):
+            assert Config.should_handle_all_prs() is True
+    
+    def test_should_auto_fix_all_ci_false_by_default(self):
+        """Should not auto-fix all CI by default."""
+        with patch.dict(os.environ, {"ADA_AUTO_FIX_CI_ALL": ""}):
+            assert Config.should_auto_fix_all_ci() is False
+    
+    def test_should_auto_fix_all_ci_true(self):
+        """Should auto-fix all CI when configured."""
+        with patch.dict(os.environ, {"ADA_AUTO_FIX_CI_ALL": "true"}):
+            assert Config.should_auto_fix_all_ci() is True
+    
+    def test_should_handle_pr_comment_ada_branch(self):
+        """Should handle PR comment on Ada-managed branch."""
+        with patch.dict(os.environ, {
+            "ADA_BRANCH_PREFIX": "ada-ai/",
+            "ADA_HANDLE_ALL_PRS": "false"
+        }):
+            assert Config.should_handle_pr_comment("ada-ai/story-123") is True
+    
+    def test_should_handle_pr_comment_non_ada_branch(self):
+        """Should not handle PR comment on non-Ada branch by default."""
+        with patch.dict(os.environ, {
+            "ADA_BRANCH_PREFIX": "ada-ai/",
+            "ADA_HANDLE_ALL_PRS": "false"
+        }):
+            assert Config.should_handle_pr_comment("feature/manual") is False
+    
+    def test_should_handle_pr_comment_all_prs_enabled(self):
+        """Should handle PR comment on any branch when configured."""
+        with patch.dict(os.environ, {
+            "ADA_BRANCH_PREFIX": "ada-ai/",
+            "ADA_HANDLE_ALL_PRS": "true"
+        }):
+            assert Config.should_handle_pr_comment("any-branch") is True
+            assert Config.should_handle_pr_comment("main") is True
+    
+    def test_should_auto_fix_ci_ada_branch(self):
+        """Should auto-fix CI on Ada-managed branch."""
+        with patch.dict(os.environ, {
+            "ADA_BRANCH_PREFIX": "ada-ai/",
+            "ADA_AUTO_FIX_CI_ALL": "false"
+        }):
+            assert Config.should_auto_fix_ci("ada-ai/bugfix") is True
+    
+    def test_should_auto_fix_ci_non_ada_branch(self):
+        """Should not auto-fix CI on non-Ada branch by default."""
+        with patch.dict(os.environ, {
+            "ADA_BRANCH_PREFIX": "ada-ai/",
+            "ADA_AUTO_FIX_CI_ALL": "false"
+        }):
+            assert Config.should_auto_fix_ci("develop") is False
+    
+    def test_should_auto_fix_ci_all_enabled(self):
+        """Should auto-fix CI on any branch when configured."""
+        with patch.dict(os.environ, {
+            "ADA_BRANCH_PREFIX": "ada-ai/",
+            "ADA_AUTO_FIX_CI_ALL": "true"
+        }):
+            assert Config.should_auto_fix_ci("any-branch") is True
+            assert Config.should_auto_fix_ci("hotfix/prod") is True
+
+
+class TestAppVersion:
+    """Test application version configuration."""
+    
+    def test_default_app_version(self):
+        """Should default to '1.0.0'."""
+        with patch.dict(os.environ, {"APP_VERSION": ""}):
+            assert Config.get_app_version() == "1.0.0"
+    
+    def test_custom_app_version(self):
+        """Should use custom version from env."""
+        with patch.dict(os.environ, {"APP_VERSION": "2.3.1"}):
+            assert Config.get_app_version() == "2.3.1"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

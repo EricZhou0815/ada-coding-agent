@@ -1,7 +1,7 @@
 import sys
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Callable, Any
 
 class LogHandler:
@@ -65,7 +65,7 @@ class DatabaseHandler(LogHandler):
             try:
                 logs = json.loads(job.logs) if job.logs else []
                 logs.append({
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "level": level,
                     "prefix": prefix,
                     "message": message,
@@ -87,7 +87,7 @@ class RedisHandler(LogHandler):
 
     def emit(self, level: str, prefix: str, message: str, metadata: Optional[dict] = None):
         payload = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": level,
             "prefix": prefix,
             "message": message,

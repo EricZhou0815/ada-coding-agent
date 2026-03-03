@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, String, DateTime, Text, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -25,8 +25,8 @@ class StoryJob(Base):
     story_title = Column(String, nullable=True) 
     status = Column(String, default="PENDING")  # PENDING, RUNNING, SUCCESS, FAILED
     logs = Column(Text, default="[]")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 # Create tables (In a real production environment, we would use Alembic)
 def init_db():

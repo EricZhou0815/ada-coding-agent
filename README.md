@@ -24,6 +24,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 - **Real-time Engineering Audit**: Follow Ada's reasoning in the Console UI with live streaming of tool calls, outputs, and internal "monologues".
 - **LLM Support**: Built-in support for **Groq** (extremely fast) and **OpenAI**.
 - **API Key Rotation**: Automatic failover across multiple API keys on rate limits or quota exhaustion — essential for high-volume production workloads.
+- **API Authentication**: Secure `/api/v1/execute` endpoint with configurable API keys to prevent unauthorized job submissions and cost abuse.
 
 ---
 
@@ -121,6 +122,20 @@ GITHUB_TOKEN=ghp_your_pat_here
 # GITLAB_TOKEN=glpat_your_token_here
 # GITLAB_URL=https://gitlab.com  # or your self-hosted instance
 ```
+
+#### API Authentication (Required for Production)
+```bash
+# API keys for authenticating requests to /api/v1/execute endpoint
+# CRITICAL: Set this before deploying to prevent unauthorized job submissions
+# Format: Comma-separated list of keys (no spaces)
+API_KEYS=ada-prod-key-abc123,ada-ui-key-xyz789
+
+# Generate secure keys with:
+# openssl rand -hex 32
+```
+
+> **🔒 Security**: Without `API_KEYS` configured, anyone with your API URL can submit unlimited jobs.  
+> **Dev Mode**: If `API_KEYS` is not set, authentication is disabled with a warning (local development only).
 
 #### Ada Management Scope (Control which PRs Ada handles)
 ```bash
@@ -223,12 +238,15 @@ docker-compose down -v
 Dispatch a story to the worker queue:
 ```bash
 curl -X POST "http://localhost:8000/api/v1/execute" \
+     -H "X-Api-Key: your-api-key-here" \
      -H "Content-Type: application/json" \
      -d '{
            "repo_url": "https://github.com/owner/repo",
            "stories": [{"story_id": "S1", "title": "Add a /health endpoint"}]
          }'
 ```
+
+> **Note**: The `X-Api-Key` header is required when `API_KEYS` is configured in your environment.
 
 ### 🖥️ CLI Mode
 Run a backlog against a remote repo:
