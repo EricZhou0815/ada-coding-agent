@@ -184,7 +184,7 @@ def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict, use_mock: 
         return status
         
     except Exception as e:
-        logger.exception(f"Fatal error in Ada run {job_id}")
+        logger.error("System", f"Fatal error in Ada run {job_id}: {e}")
         _append_job_log(job_id, f"Fatal error: {str(e)}")
         _update_job_status(job_id, "FAILED")
         

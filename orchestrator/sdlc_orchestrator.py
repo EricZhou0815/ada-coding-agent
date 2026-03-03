@@ -14,6 +14,7 @@ Workflow per story:
 import os
 import shutil
 import uuid
+import uuid_utils
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -146,7 +147,7 @@ class SDLCOrchestrator:
             # ── Step 2a: Create feature branch ───────────────────────────────
             branch_prefix = Config.get_ada_branch_prefix()
             # Append UUID v7 suffix to prevent branch name collisions when same story runs concurrently
-            unique_suffix = str(uuid.uuid7())[:8]  # Use first 8 chars for readability
+            unique_suffix = str(uuid_utils.uuid7())[:8]  # Use first 8 chars for readability
             branch_name = f"{branch_prefix}{story_id}-{GitManager.slugify(story_title)}-{unique_suffix}"
             try:
                 self.git.checkout(self.base_branch)

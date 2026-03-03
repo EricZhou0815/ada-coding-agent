@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Brain, Cpu, MessageSquare, Shield, Zap, ExternalLink, XCircle } from "lucide-react"
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { ExecutionForm } from "@/components/ExecutionForm"
 import { LogTerminal } from "@/components/LogTerminal"
 import { StatusBadge } from "@/components/StatusBadge"
@@ -10,6 +11,7 @@ import { JobSidebar } from "@/components/JobSidebar"
 import { Job, JobSummary, ExecutionRequest } from "@/types"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || ""
 
 export default function Home() {
   const [jobs, setJobs] = useState<JobSummary[]>([])
@@ -19,7 +21,11 @@ export default function Home() {
 
   const fetchJobs = async () => {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/jobs`)
+      const resp = await fetch(`${API_BASE}/api/v1/jobs`, {
+        headers: {
+          "X-Api-Key": API_KEY
+        }
+      })
       if (resp.ok) {
         const data = await resp.json()
         setJobs(data)
@@ -35,7 +41,11 @@ export default function Home() {
 
   const fetchJobStatus = async (jobId: string) => {
     try {
-      const resp = await fetch(`${API_BASE}/api/v1/jobs/${jobId}`)
+      const resp = await fetch(`${API_BASE}/api/v1/jobs/${jobId}`, {
+        headers: {
+          "X-Api-Key": API_KEY
+        }
+      })
       if (!resp.ok) throw new Error("Could not fetch job status")
       const data = await resp.json()
       setActiveJob(data)
@@ -68,30 +78,66 @@ export default function Home() {
   useEffect(() => {
     if (!activeJob?.job_id || ['SUCCESS', 'FAILED'].includes(activeJob.status)) return
 
-    const eventSource = new EventSource(`${API_BASE}/api/v1/jobs/${activeJob.job_id}/stream`)
+    const abortController = new AbortController();
 
-    eventSource.onmessage = (event) => {
-      const newLog = JSON.parse(event.data)
-      setActiveJob(prev => {
-        if (!prev) return null
-        // Prevent duplicate logs if initial fetch already got some
-        const exists = prev.logs.some(l => l.timestamp === newLog.timestamp && l.message === newLog.message)
-        if (exists) return prev
+    const connectStream = async () => {
+      try {
+        await fetchEventSource(`${API_BASE}/api/v1/jobs/${activeJob.job_id}/stream`, {
+          method: 'GET',
+          headers: {
+            "X-Api-Key": API_KEY,
+            "Accept": "text/event-stream",
+          },
+          signal: abortController.signal,
+          async onopen(response) {
+            if (response.ok && response.headers.get('content-type')?.startsWith('text/event-stream')) {
+              console.log("SSE Connection opened");
+            } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+              console.error(`SSE Authentication or Client Error: ${response.status}`);
+              throw new Error(`Client Error: ${response.status}`);
+            }
+          },
+          onmessage(event) {
+            try {
+              const newLog = JSON.parse(event.data)
+              setActiveJob(prev => {
+                if (!prev) return null
+                // Prevent duplicate logs if initial fetch already got some
+                const exists = prev.logs.some(l => l.timestamp === newLog.timestamp && l.message === newLog.message)
+                if (exists) return prev
 
-        return {
-          ...prev,
-          logs: [...prev.logs, newLog]
-        }
-      })
-    }
+                return {
+                  ...prev,
+                  logs: [...prev.logs, newLog]
+                }
+              })
+            } catch (err) {
+              console.error("Failed to parse SSE message:", err);
+            }
+          },
+          onclose() {
+            // Server closed connection
+            console.log("SSE Connection closed by server");
+          },
+          onerror(err) {
+            console.error("SSE Error:", err)
+            // If you return nothing or undefined, it will automatically retry.
+            // If you throw the error, it will stop retrying and bubble up.
+            // For now, let's let it auto-retry on network errors, but fail on explicit throws (like 401s).
+            if (err instanceof Error && err.message.startsWith('Client Error')) {
+              throw err;
+            }
+          },
+        });
+      } catch (err) {
+        console.error("Fatal SSE Error:", err);
+      }
+    };
 
-    eventSource.onerror = (err) => {
-      console.error("SSE Error:", err)
-      eventSource.close()
-    }
+    connectStream();
 
     return () => {
-      eventSource.close()
+      abortController.abort();
     }
   }, [activeJob?.job_id])
 
@@ -102,7 +148,10 @@ export default function Home() {
     try {
       const resp = await fetch(`${API_BASE}/api/v1/execute`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Api-Key": API_KEY
+        },
         body: JSON.stringify(payload),
       })
 

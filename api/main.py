@@ -1,7 +1,7 @@
 import os
 import json
 from uuid import uuid4
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Header
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from typing import List, Dict, Any, Optional, Generator
@@ -66,33 +66,34 @@ class JobSummary(BaseModel):
 
 # ── Security Dependencies ───────────────────────────────────────────────────
 
-async def verify_api_key(x_api_key: str = Header(..., description="API Key for authentication")):
+async def verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-Api-Key"),
+    api_key_query: Optional[str] = Query(None, alias="api_key")
+):
     """
-    Verify API key from X-Api-Key header.
+    Verify API key from X-Api-Key header or api_key query parameter.
     
     Keys are configured via API_KEYS environment variable (comma-separated).
     Example: API_KEYS=key1,key2,key3
-    
-    Raises:
-        HTTPException: 401 if key is invalid or missing
     """
     valid_keys_str = os.getenv("API_KEYS", "")
     if not valid_keys_str:
         # No keys configured - security risk! Log warning but allow in dev
-        # In production, this should fail hard
         import logging
         logging.warning("⚠️  API_KEYS not configured - API authentication is DISABLED")
         return "dev-mode-no-auth"
     
     valid_keys = [k.strip() for k in valid_keys_str.split(",") if k.strip()]
     
-    if not x_api_key or x_api_key not in valid_keys:
+    provided_key = x_api_key or api_key_query
+    
+    if not provided_key or provided_key not in valid_keys:
         raise HTTPException(
             status_code=401,
-            detail="Invalid or missing API key. Provide valid X-Api-Key header."
+            detail="Invalid or missing API key. Provide valid X-Api-Key header or ?api_key= query param."
         )
     
-    return x_api_key
+    return provided_key
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
@@ -145,7 +146,10 @@ def execute_stories(
 
 
 @app.get("/api/v1/jobs", response_model=List[JobSummary])
-def list_jobs(db: SessionLocal = Depends(get_db)):
+def list_jobs(
+    db: SessionLocal = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
     """
     Returns a history of all user story jobs.
     """
@@ -165,15 +169,12 @@ def get_job_status(
     job_id: str, 
     db: SessionLocal = Depends(get_db),
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    api_key: str = Depends(verify_api_key)
 ):
     """
     Check the status and logs of a running story job. 
     Can be polled by the frontend.
-    
-    Query parameters:
-    - limit: Maximum number of logs to return (default: 100)
-    - offset: Number of logs to skip for pagination (default: 0)
     """
     from api.database import JobLog
     
@@ -217,7 +218,10 @@ def get_job_status(
     }
 
 @app.get("/api/v1/jobs/{job_id}/stream")
-async def stream_job_logs(job_id: str):
+async def stream_job_logs(
+    job_id: str,
+    api_key: str = Depends(verify_api_key)
+):
     """
     SSE endpoint to stream live logs from Redis Pub/Sub.
     """
@@ -235,6 +239,7 @@ async def stream_job_logs(job_id: str):
         finally:
             pubsub.unsubscribe(f"logs:{job_id}")
             pubsub.close()
+            r.close()
 
     return StreamingResponse(redis_event_generator(), media_type="text/event-stream")
 
