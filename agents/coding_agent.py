@@ -88,7 +88,11 @@ class CodingAgent(BaseAgent):
         return AgentResult(success=True, output="Coding phase completed.")
 
     def _save_checkpoint(self, path: str, tool_call_count: int):
-        """Persists the agent's current state to a file."""
+        """
+        Persists the agent's current state to a file using atomic writes.
+        Writes to a temporary file first, then atomically replaces the target file
+        to prevent corruption if the process crashes mid-write.
+        """
         def json_serializable(obj):
             """Fallback strategy for non-JSON objects."""
             if hasattr(obj, "model_dump"):
@@ -104,8 +108,12 @@ class CodingAgent(BaseAgent):
                 "messages": self.llm.get_conversation_history(),
                 "tool_call_count": tool_call_count
             }
-            with open(path, "w") as f:
+            # Atomic write: write to temp file, then atomically replace
+            temp_path = path + ".tmp"
+            with open(temp_path, "w") as f:
                 json.dump(state, f, indent=2, default=json_serializable)
+            # os.replace() is atomic on both POSIX and Windows
+            os.replace(temp_path, path)
         except Exception as e:
             logger.warning(self.name, f"Failed to save checkpoint: {e}")
 

@@ -1,6 +1,35 @@
 import os
 import subprocess
+import shlex
 from typing import List, Dict
+
+# Default command allowlist for shell command execution security
+# These base commands are always permitted to prevent command injection
+DEFAULT_ALLOWED_COMMANDS = {
+    # Core interpreters
+    "python", "python3", "python.exe",
+    "node", "node.exe",
+    
+    # Package managers
+    "npm", "npm.cmd", "pip", "pip3",
+    
+    # Test runners
+    "pytest",
+    
+    # Version control
+    "git",
+    
+    # Linters/formatters (common safe tools)
+    "eslint", "ruff", "black"
+}
+
+# Load custom commands from environment for project-specific needs
+# Example: ADA_CUSTOM_COMMANDS="cargo,go,mvn,gradle"
+_custom_commands_str = os.getenv("ADA_CUSTOM_COMMANDS", "")
+_custom_commands = set(_custom_commands_str.split(",")) if _custom_commands_str else set()
+
+# Merge default and custom commands
+ALLOWED_COMMANDS = DEFAULT_ALLOWED_COMMANDS | _custom_commands
 
 class Tools:
     """
@@ -110,7 +139,7 @@ class Tools:
             directory (str, optional): The path to search within. Defaults to ".".
 
         Returns:
-            Dict: Result mapping containing `stdout`, `stderr`, and `exit_code`.
+            Dict: Result mapping containing `stdout`, `stderr`, and `returncode`.
         """
         cmd = ["grep", "-rnIE", "--exclude-dir={.git,__pycache__,venv,node_modules}", keyword, directory]
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -123,25 +152,75 @@ class Tools:
         return {
             "stdout": output,
             "stderr": result.stderr.strip(),
-            "exit_code": result.returncode
+            "returncode": result.returncode
         }
 
-    def run_command(self, command: str) -> Dict:
+    def run_command(self, command: str, cwd: str = None) -> Dict:
         """
-        Executes a shell command.
+        Executes a shell command with security controls.
+        
+        Security Features:
+        - Command allowlist prevents arbitrary command execution
+        - No shell=True to prevent command injection
+        - Timeout protection against runaway processes
+        - Sandboxed execution in specified working directory
 
         Args:
-            command (str): The raw shell command string.
+            command (str): The command string to execute.
+            cwd (str, optional): Working directory for command execution.
 
         Returns:
-            Dict: Result containing `stdout`, `stderr`, and `exit_code`.
+            Dict: Result containing `stdout`, `stderr`, and `returncode`.
         """
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.returncode
-        }
+        try:
+            # Parse command into list (prevents shell injection)
+            parts = shlex.split(command)
+            
+            if not parts:
+                return {
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": "Error: Empty command provided"
+                }
+            
+            # Extract base command (first element)
+            base_command = parts[0]
+            
+            # Security check: Verify command is in allowlist
+            if base_command not in ALLOWED_COMMANDS:
+                return {
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": f"Security Error: Command '{base_command}' is not in the allowlist. Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}"
+                }
+            
+            # Execute command WITHOUT shell=True (prevents injection)
+            result = subprocess.run(
+                parts,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout to prevent hanging
+                cwd=cwd
+            )
+            
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "returncode": result.returncode
+            }
+            
+        except subprocess.TimeoutExpired:
+            return {
+                "returncode": 124,  # Standard timeout exit code
+                "stdout": "",
+                "stderr": f"Error: Command timed out after 300 seconds"
+            }
+        except Exception as e:
+            return {
+                "returncode": 1,
+                "stdout": "",
+                "stderr": f"Error executing command: {str(e)}"
+            }
 
     def apply_patch(self, patch_text: str):
         """

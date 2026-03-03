@@ -1,7 +1,7 @@
 import sys
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Callable, Any
 
 class LogHandler:
@@ -58,24 +58,27 @@ class DatabaseHandler(LogHandler):
         self.job_id = job_id
 
     def emit(self, level: str, prefix: str, message: str, metadata: Optional[dict] = None):
-        from api.database import SessionLocal, StoryJob
+        from api.database import SessionLocal, JobLog
         db = SessionLocal()
-        job = db.query(StoryJob).filter(StoryJob.id == self.job_id).first()
-        if job:
-            try:
-                logs = json.loads(job.logs) if job.logs else []
-                logs.append({
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "level": level,
-                    "prefix": prefix,
-                    "message": message,
-                    "metadata": metadata or {}
-                })
-                job.logs = json.dumps(logs)
-                db.commit()
-            except:
-                pass
-        db.close()
+        try:
+            # Simple INSERT into job_logs table - no JSON parsing overhead!
+            log_entry = JobLog(
+                job_id=self.job_id,
+                timestamp=datetime.now(timezone.utc),
+                level=level,
+                prefix=prefix,
+                message=message,
+                meta=metadata or {}
+            )
+            db.add(log_entry)
+            db.commit()
+        except Exception as e:
+            # Log to stderr so failures aren't completely silent
+            db.rollback()
+            import sys
+            print(f"[Logger] Failed to persist log to database: {e}", file=sys.stderr)
+        finally:
+            db.close()
 
 class RedisHandler(LogHandler):
     """Streams logs to Redis Pub/Sub for UI consumption."""
@@ -87,7 +90,7 @@ class RedisHandler(LogHandler):
 
     def emit(self, level: str, prefix: str, message: str, metadata: Optional[dict] = None):
         payload = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": level,
             "prefix": prefix,
             "message": message,

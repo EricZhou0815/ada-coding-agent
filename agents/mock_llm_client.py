@@ -101,8 +101,8 @@ def generate_jwt_token(username: str) -> str:
     """
     payload = {
         "username": username,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24),
-        "iat": datetime.datetime.utcnow()
+        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24),
+        "iat": datetime.datetime.now(datetime.timezone.utc)
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     return token

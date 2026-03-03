@@ -1,7 +1,15 @@
 import os
 import json
+import time
 from openai import OpenAI
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
+from agents.api_key_pool import (
+    APIKeyPool, 
+    is_rate_limit_error, 
+    is_quota_exhausted_error, 
+    is_invalid_key_error
+)
 
 # Groq models available via OpenAI-compatible API
 # See: https://console.groq.com/docs/openai
@@ -15,6 +23,11 @@ class LLMClient:
     LLM client wrapper for Ada.
     Supports Groq (default) and OpenAI via the OpenAI-compatible client.
     Supports function calling for tool execution.
+    
+    Features:
+        - Multi-key support with automatic rotation on failures
+        - Automatic retry with exponential backoff
+        - Rate limit and quota exhaustion handling
 
     Providers:
         - "groq"
@@ -26,6 +39,8 @@ class LLMClient:
         api_key: str = None,
         model: str = None,
         provider: str = "groq",
+        key_pool: Optional[APIKeyPool] = None,
+        max_context_tokens: int = None,
     ):
         """
         Initializes the LLMClient.
@@ -34,32 +49,84 @@ class LLMClient:
             api_key (str, optional): An explicit API key. Defaults to fetching from environment.
             model (str, optional): The specific model name to use. Defaults to provider generic defaults.
             provider (str, optional): Which platform to use ('groq' or 'openai'). Defaults to "groq".
+            key_pool (APIKeyPool, optional): Pool of API keys for rotation. Takes precedence over api_key.
+            max_context_tokens (int, optional): Maximum tokens to keep in conversation history.
+                Defaults to 80000 (safe for GPT-4/Claude). Set via ADA_MAX_CONTEXT_TOKENS env var.
 
         Raises:
             ValueError: If the API key for the requested provider is missing.
             ValueError: If the provider requested is unsupported.
         """
         self.provider = provider.lower()
+        self.key_pool = key_pool
+        self._current_api_key: Optional[str] = None
+        self._client: Optional[OpenAI] = None
+        
+        # Token budget for context management (prevents OOM and context overflow)
+        if max_context_tokens is None:
+            max_context_tokens = int(os.getenv("ADA_MAX_CONTEXT_TOKENS", "80000"))
+        self.max_context_tokens = max_context_tokens
 
         if self.provider == "groq":
-            self.api_key = api_key or os.getenv("GROQ_API_KEY")
-            if not self.api_key:
-                raise ValueError("Groq API key not provided (set GROQ_API_KEY).")
+            if key_pool:
+                self._current_api_key = key_pool.get_key()
+            else:
+                self._current_api_key = api_key or os.getenv("GROQ_API_KEY")
+            if not self._current_api_key:
+                raise ValueError("Groq API key not provided (set GROQ_API_KEY or use key_pool).")
             self.model = model or GROQ_DEFAULT_MODEL
-            self.client = OpenAI(
-                api_key=self.api_key,
+            self._client = OpenAI(
+                api_key=self._current_api_key,
                 base_url=GROQ_BASE_URL,
             )
         elif self.provider == "openai":
-            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-            if not self.api_key:
-                raise ValueError("OpenAI API key not provided (set OPENAI_API_KEY).")
+            if key_pool:
+                self._current_api_key = key_pool.get_key()
+            else:
+                self._current_api_key = api_key or os.getenv("OPENAI_API_KEY")
+            if not self._current_api_key:
+                raise ValueError("OpenAI API key not provided (set OPENAI_API_KEY or use key_pool).")
             self.model = model or OPENAI_DEFAULT_MODEL
-            self.client = OpenAI(api_key=self.api_key)
+            self._client = OpenAI(api_key=self._current_api_key)
         else:
             raise ValueError(f"Unsupported provider: '{provider}'. Use 'groq' or 'openai'.")
 
+        # Keep backward-compatible alias
+        self.api_key = self._current_api_key
+        self.client = self._client
         self.conversation_history = []
+    
+    def _rotate_key(self) -> bool:
+        """
+        Rotate to the next available API key.
+        
+        Returns:
+            True if rotation succeeded, False if no pool or no available keys.
+        """
+        if not self.key_pool:
+            return False
+        
+        try:
+            new_key = self.key_pool.get_key()
+            if new_key == self._current_api_key:
+                # Same key returned, might be the only available one
+                # Try once more in case it's round-robin
+                new_key = self.key_pool.get_key()
+            
+            self._current_api_key = new_key
+            self.api_key = new_key
+            
+            # Recreate client with new key
+            if self.provider == "groq":
+                self._client = OpenAI(api_key=new_key, base_url=GROQ_BASE_URL)
+            else:
+                self._client = OpenAI(api_key=new_key)
+            
+            self.client = self._client
+            return True
+        except RuntimeError:
+            # All keys exhausted
+            return False
 
     def generate(self, prompt: str, tools: Any = None) -> Dict:
         """
@@ -67,6 +134,9 @@ class LLMClient:
 
         If the most recent message in the chat history was an assistant tool call, this method 
         automatically appends the incoming `prompt` as a `role: tool` message to fulfill the API requirements.
+        
+        Implements automatic key rotation on rate limits or quota exhaustion when using a key pool.
+        Also implements automatic context trimming to stay within token budgets.
 
         Args:
             prompt (str): The user's prompt or the serialized result from a previous tool call.
@@ -107,14 +177,17 @@ class LLMClient:
         if tools:
             api_tools = self._tools_to_tools_api_format(tools)
 
-        import time
-        max_api_retries = 3
+        # Trim conversation to stay within token budget (zero-cost operation)
+        self._trim_to_budget()
+
+        max_api_retries = 5  # Increased to allow for key rotation
         api_retry_count = 0
+        last_exception = None
         
         while api_retry_count < max_api_retries:
             try:
                 # Make API call (same interface for both Groq and OpenAI)
-                response = self.client.chat.completions.create(
+                response = self._client.chat.completions.create(
                     model=self.model,
                     messages=self.conversation_history,
                     tools=api_tools if api_tools else None,
@@ -122,14 +195,57 @@ class LLMClient:
                     temperature=0.7,
                     max_tokens=2000,
                 )
+                
+                # Success - mark key as healthy if using pool
+                if self.key_pool:
+                    self.key_pool.mark_success(self._current_api_key)
+                
                 break
+                
             except Exception as e:
+                last_exception = e
                 api_retry_count += 1
-                if api_retry_count >= max_api_retries:
+                
+                # Classify the error and handle accordingly
+                if is_invalid_key_error(e):
+                    # Key is permanently bad
+                    if self.key_pool:
+                        self.key_pool.mark_invalid(self._current_api_key)
+                        if self._rotate_key():
+                            continue  # Retry immediately with new key
+                    raise ValueError(f"Invalid API key: {e}")
+                
+                elif is_quota_exhausted_error(e):
+                    # Quota exhausted - try rotating to another key
+                    if self.key_pool:
+                        self.key_pool.mark_quota_exhausted(self._current_api_key)
+                        if self._rotate_key():
+                            continue  # Retry immediately with new key
+                    # No more keys available, propagate error
                     raise e
-                # Wait before retrying (exponential backoff)
-                wait_time = 2 ** api_retry_count
-                time.sleep(wait_time)
+                
+                elif is_rate_limit_error(e):
+                    # Rate limited - mark and try rotating
+                    if self.key_pool:
+                        self.key_pool.mark_rate_limited(self._current_api_key)
+                        if self._rotate_key():
+                            continue  # Retry immediately with new key
+                    
+                    # No pool or no available keys - do exponential backoff
+                    if api_retry_count >= max_api_retries:
+                        raise e
+                    wait_time = min(2 ** api_retry_count, 30)  # Cap at 30s
+                    time.sleep(wait_time)
+                
+                else:
+                    # Unknown error - standard retry with backoff
+                    if api_retry_count >= max_api_retries:
+                        raise e
+                    wait_time = 2 ** api_retry_count
+                    time.sleep(wait_time)
+        
+        if api_retry_count >= max_api_retries and last_exception:
+            raise last_exception
 
 
         message = response.choices[0].message
@@ -305,6 +421,49 @@ class LLMClient:
         Overrides the current conversation history.
         """
         self.conversation_history = history
+
+    def _estimate_tokens(self, messages: List[Dict]) -> int:
+        """
+        Estimates token count for a list of messages.
+        Uses conservative estimate: 1 character ≈ 0.25 tokens (4 chars per token).
+        This matches OpenAI's rough approximation and avoids dependency on tiktoken.
+        
+        Args:
+            messages: List of conversation messages
+            
+        Returns:
+            Estimated token count
+        """
+        return sum(len(json.dumps(msg)) for msg in messages) // 4
+
+    def _trim_to_budget(self):
+        """
+        Removes oldest messages to stay within max_context_tokens budget.
+        Uses simple truncation (zero cost, zero latency) instead of LLM-based summarization.
+        Always keeps system messages and at least 10 recent messages.
+        
+        Industry standard approach used by GitHub Copilot, Cursor, and Devin.
+        """
+        if not self.conversation_history:
+            return
+        
+        estimated_tokens = self._estimate_tokens(self.conversation_history)
+        
+        # Keep trimming oldest non-system messages until under budget
+        while estimated_tokens > self.max_context_tokens and len(self.conversation_history) > 10:
+            # Find and remove oldest non-system message
+            removed = False
+            for i, msg in enumerate(self.conversation_history):
+                if msg.get("role") != "system":
+                    self.conversation_history.pop(i)
+                    removed = True
+                    break
+            
+            if not removed:
+                # All messages are system messages, stop trimming
+                break
+            
+            estimated_tokens = self._estimate_tokens(self.conversation_history)
 
 
 # Backward-compatible alias

@@ -4,22 +4,24 @@ orchestrator/sdlc_orchestrator.py
 Integrates Ada's agent pipeline into the full Software Development Lifecycle.
 
 Workflow per story:
-  1. Create a scoped feature branch:  ada/<story-id>-<slug>
+  1. Create a scoped feature branch:  ada-ai/<story-id>-<slug>
   2. Run the EpicOrchestrator's direct sandbox execution
   3. Commit all changes with a structured commit message
   4. Push the branch to origin
-  5. Open a Pull Request via the GitHub API using the PR template
+  5. Open a Pull Request via the VCS API using the PR template
 """
 
 import os
 import shutil
+import uuid
 from pathlib import Path
 from typing import List, Dict, Optional
 
 from orchestrator.epic_orchestrator import EpicOrchestrator
 from orchestrator.rule_provider import RuleProvider
 from tools.git_manager import GitManager
-from tools.github_client import GitHubClient
+from tools.vcs_client import VCSClient
+from config import Config
 from utils.logger import logger
 
 
@@ -39,26 +41,43 @@ class SDLCOrchestrator:
         base_branch: str = "main",
         tasks_output_dir: str = "tasks",
         rule_providers: Optional[List[RuleProvider]] = None,
-        github_token: Optional[str] = None
+        vcs_client: Optional[VCSClient] = None,
+        github_token: Optional[str] = None  # Deprecated, for backward compatibility
     ):
         """
         Args:
             llm_client: LLM client for Ada.
             tools: Read-only tools for initial exploration.
-            repo_url: GitHub HTTPS or SSH URL of the target repository.
+            repo_url: VCS HTTPS or SSH URL of the target repository.
             base_branch: Branch PRs will target (default "main").
             tasks_output_dir: Directory to persist generated task JSON files.
             rule_providers: Quality gate providers for the ValidationAgent.
-            github_token: GitHub PAT. Falls back to GITHUB_TOKEN env var.
+            vcs_client: Pre-configured VCS client. If None, uses Config.get_vcs_client().
+            github_token: Deprecated. Use vcs_client parameter or env vars instead.
         """
         self.repo_url = repo_url
         self.base_branch = base_branch
         self.rule_providers = rule_providers or []
 
-        # Parse owner/repo from URL for GitHub API calls
-        self.gh_owner, self.gh_repo = GitHubClient.parse_repo_url(repo_url)
+        # Get VCS client - supports GitHub, GitLab, etc.
+        if vcs_client:
+            self.vcs = vcs_client
+        elif github_token:
+            # Backward compatibility: if github_token provided, use GitHub client
+            from tools.github_client import GitHubClient
+            self.vcs = GitHubClient(token=github_token)
+        else:
+            from config import Config
+            self.vcs = Config.get_vcs_client()
+        
+        # Parse owner/repo from URL using the VCS client
+        self.owner, self.repo = self.vcs.parse_repo_url(repo_url)
+        
+        # Backward compatibility aliases
+        self.gh_owner = self.owner
+        self.gh_repo = self.repo
+        self.github = self.vcs  # Legacy alias
 
-        self.github = GitHubClient(token=github_token)
         self.epic = EpicOrchestrator(
             llm_client=llm_client,
             tools=tools,
@@ -125,7 +144,10 @@ class SDLCOrchestrator:
             logger.info("SDLCOrchestrator", f"{'='*70}")
 
             # ── Step 2a: Create feature branch ───────────────────────────────
-            branch_name = f"ada/{story_id}-{GitManager.slugify(story_title)}"
+            branch_prefix = Config.get_ada_branch_prefix()
+            # Append UUID v7 suffix to prevent branch name collisions when same story runs concurrently
+            unique_suffix = str(uuid.uuid7())[:8]  # Use first 8 chars for readability
+            branch_name = f"{branch_prefix}{story_id}-{GitManager.slugify(story_title)}-{unique_suffix}"
             try:
                 self.git.checkout(self.base_branch)
                 self.git.create_and_checkout_branch(branch_name)

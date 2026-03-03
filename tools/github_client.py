@@ -1,8 +1,8 @@
 """
 tools/github_client.py
 
-Thin wrapper around the GitHub REST API.
-Handles PR creation and lookup using a personal access token (GITHUB_TOKEN).
+GitHub implementation of the VCSClient interface.
+Handles PR creation, comments, CI logs using the GitHub REST API.
 """
 
 import os
@@ -10,17 +10,19 @@ import re
 import json
 import urllib.request
 import urllib.error
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from utils.logger import logger
+from tools.vcs_client import VCSClient, VCSClientFactory
 
 
-class GitHubClient:
+class GitHubClient(VCSClient):
     """
+    GitHub implementation of VCSClient.
     Communicates with the GitHub REST API using only the standard library.
-    No third-party dependencies required.
     """
 
     API_BASE = "https://api.github.com"
+    PLATFORM = "github"
 
     def __init__(self, token: Optional[str] = None):
         """
@@ -143,6 +145,13 @@ class GitHubClient:
         endpoint = f"/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
         return self._get(endpoint)
 
+    def get_pipeline_jobs(self, owner: str, repo: str, pipeline_id: int) -> Dict:
+        """
+        VCSClient interface method - alias for get_run_jobs.
+        GitHub calls pipelines "workflow runs".
+        """
+        return self.get_run_jobs(owner, repo, pipeline_id)
+
     def get_job_logs(self, owner: str, repo: str, job_id: int) -> str:
         """
         Fetches the plain text logs for a specific job.
@@ -158,8 +167,35 @@ class GitHubClient:
         endpoint = f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs"
         return self._get_raw(endpoint)
 
+    def is_collaborator(self, owner: str, repo: str, username: str) -> bool:
+        """
+        Checks if a user is a collaborator on the repository.
+        
+        This is used for security validation - only collaborators should be able
+        to trigger Ada actions via PR comments.
+
+        Args:
+            owner: GitHub username or organisation.
+            repo: Repository name.
+            username: GitHub username to check.
+
+        Returns:
+            True if the user is a collaborator, False otherwise.
+        """
+        endpoint = f"/repos/{owner}/{repo}/collaborators/{username}"
+        try:
+            # GitHub returns 204 No Content if user IS a collaborator
+            # Returns 404 if user is NOT a collaborator
+            self._head(endpoint)
+            return True
+        except RuntimeError as e:
+            if "404" in str(e):
+                return False
+            # Re-raise other errors (403 permission denied, etc.)
+            raise
+
     @staticmethod
-    def parse_repo_url(url: str):
+    def parse_repo_url(url: str) -> Tuple[str, str]:
         """
         Parses a GitHub repository URL into (owner, repo) tuple.
 
@@ -179,6 +215,11 @@ class GitHubClient:
             if match:
                 return match.group(1), match.group(2)
         raise ValueError(f"Could not parse GitHub URL: {url}")
+
+    @staticmethod
+    def get_platform_name() -> str:
+        """Returns the platform name."""
+        return "github"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Internal HTTP helpers
@@ -223,3 +264,20 @@ class GitHubClient:
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             raise RuntimeError(f"GitHub API error {e.code}: {body}") from e
+
+    def _head(self, endpoint: str) -> bool:
+        """
+        Perform a HEAD request - used for existence checks (e.g., collaborator status).
+        Returns True on 2xx, raises RuntimeError on 4xx/5xx.
+        """
+        url = self.API_BASE + endpoint
+        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status < 400
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"GitHub API error {e.code}") from e
+
+
+# Register GitHubClient with the factory
+VCSClientFactory.register("github", GitHubClient)
