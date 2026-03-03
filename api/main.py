@@ -161,20 +161,51 @@ def list_jobs(db: SessionLocal = Depends(get_db)):
     ]
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatusResponse)
-def get_job_status(job_id: str, db: SessionLocal = Depends(get_db)):
+def get_job_status(
+    job_id: str, 
+    db: SessionLocal = Depends(get_db),
+    limit: int = 100,
+    offset: int = 0
+):
     """
     Check the status and logs of a running story job. 
     Can be polled by the frontend.
+    
+    Query parameters:
+    - limit: Maximum number of logs to return (default: 100)
+    - offset: Number of logs to skip for pagination (default: 0)
     """
+    from api.database import JobLog
+    
     job = db.query(StoryJob).filter(StoryJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
-    logs = []
-    try:
-        logs = json.loads(job.logs) if job.logs else []
-    except:
-        pass
+    
+    # Query logs from new job_logs table, ordered by timestamp descending
+    log_entries = db.query(JobLog).filter(
+        JobLog.job_id == job_id
+    ).order_by(
+        JobLog.timestamp.desc()
+    ).limit(limit).offset(offset).all()
+    
+    # Convert to API format
+    logs = [
+        {
+            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+            "level": log.level,
+            "prefix": log.prefix,
+            "message": log.message,
+            "metadata": log.meta or {}
+        }
+        for log in reversed(log_entries)  # Reverse to get chronological order
+    ]
+    
+    # Fallback: If no logs in new table, try legacy JSON format (for backwards compatibility)
+    if not logs and job.logs:
+        try:
+            logs = json.loads(job.logs) if job.logs else []
+        except:
+            pass
         
     return {
         "job_id": job.id,

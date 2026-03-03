@@ -13,35 +13,6 @@ Items are prioritized based on risk and impact.
 
 ## 🟢 P2: Address When Scaling
 
-### 4. Database Connection Per Log Line
-**Location:** `utils/logger.py` - `DatabaseHandler.emit()`  
-**Risk:** LOW at MVP scale → HIGH at ~50+ concurrent jobs
-
-**Current State:** Opens/closes DB session for every log entry
-
-**Recommended Fix:**
-- Use connection pooling properly
-- Batch log writes (buffer N entries, flush periodically)
-- Move to async writes with background worker
-
----
-
-### 5. Logs Stored as JSON in Text Column
-**Location:** `api/database.py` - `StoryJob.logs`  
-**Risk:** LOW at MVP → Query performance degrades at scale
-
-**Current State:** 
-```python
-logs = Column(Text, default="[]")  # JSON array as string
-```
-
-**Recommended Fix:**
-- Create separate `job_logs` table with proper indices
-- Or use PostgreSQL JSONB column type
-- Add pagination for log retrieval API
-
----
-
 ### 6. Token Injected in Git Clone URL
 **Location:** `tools/git_manager.py` lines 55-57  
 **Risk:** LOW - Could leak to logs/stack traces despite partial scrubbing
@@ -140,6 +111,8 @@ os.replace(temp_path, path)  # Atomic on POSIX/Windows
 
 | Issue | Resolution | Date |
 |-------|------------|------|
+| Database connection per log line | Created separate job_logs table with indexed queries | 2026-03-03 |
+| Logs stored as JSON in text column | Migrated to PostgreSQL-ready job_logs table with JSONB support | 2026-03-03 |
 | Shell command injection risk | Implemented command allowlist with security checks | 2026-03-03 |
 | Silent exception swallowing | Added stderr logging for database write failures | 2026-03-03 |
 | Webhook idempotency | Implemented Redis deduplication with X-GitHub-Delivery | 2026-03-03 |

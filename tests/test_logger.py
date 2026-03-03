@@ -120,86 +120,66 @@ class TestDatabaseHandler:
     
     @patch('api.database.SessionLocal')
     def test_emit_saves_to_database(self, mock_session_class):
-        """Should save structured logs to database."""
+        """Should save structured logs to database using JobLog table."""
         # Setup mocks
         mock_db = MagicMock()
         mock_session_class.return_value = mock_db
-        
-        mock_job = MagicMock()
-        mock_job.logs = "[]"
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_job
         
         # Execute
         handler = DatabaseHandler("job-456")
         handler.emit("info", "Agent", "Test message", metadata={"key": "value"})
         
-        # Verify
+        # Verify database operations
+        mock_db.add.assert_called_once()
         mock_db.commit.assert_called_once()
         mock_db.close.assert_called_once()
         
-        # Check log structure
-        saved_logs = json.loads(mock_job.logs)
-        assert len(saved_logs) == 1
-        assert saved_logs[0]["level"] == "info"
-        assert saved_logs[0]["prefix"] == "Agent"
-        assert saved_logs[0]["message"] == "Test message"
-        assert saved_logs[0]["metadata"] == {"key": "value"}
-        assert "timestamp" in saved_logs[0]
+        # Check that a JobLog object was added
+        added_log = mock_db.add.call_args[0][0]
+        assert added_log.job_id == "job-456"
+        assert added_log.level == "info"
+        assert added_log.prefix == "Agent"
+        assert added_log.message == "Test message"
+        assert added_log.meta == {"key": "value"}
+        assert added_log.timestamp is not None
     
     @patch('api.database.SessionLocal')
-    def test_emit_appends_to_existing_logs(self, mock_session_class):
-        """Should append to existing job logs."""
+    def test_emit_creates_multiple_log_entries(self, mock_session_class):
+        """Should create multiple independent log entries."""
         mock_db = MagicMock()
         mock_session_class.return_value = mock_db
-        
-        # Start with existing log
-        existing_log = [{"timestamp": "2026-01-01T00:00:00", "message": "Old log"}]
-        mock_job = MagicMock()
-        mock_job.logs = json.dumps(existing_log)
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_job
         
         handler = DatabaseHandler("job-789")
-        handler.emit("success", "Worker", "New log entry")
+        handler.emit("info", "Worker", "First log entry")
+        handler.emit("success", "Worker", "Second log entry")
         
-        # Verify new log was appended
-        saved_logs = json.loads(mock_job.logs)
-        assert len(saved_logs) == 2
-        assert saved_logs[0]["message"] == "Old log"
-        assert saved_logs[1]["message"] == "New log entry"
+        # Verify two separate inserts happened
+        assert mock_db.add.call_count == 2
+        assert mock_db.commit.call_count == 2
+        
+        # Check both log entries
+        first_log = mock_db.add.call_args_list[0][0][0]
+        second_log = mock_db.add.call_args_list[1][0][0]
+        
+        assert first_log.message == "First log entry"
+        assert second_log.message == "Second log entry"
     
     @patch('api.database.SessionLocal')
-    def test_emit_handles_missing_job(self, mock_session_class):
-        """Should handle case when job doesn't exist."""
+    def test_emit_handles_database_error(self, mock_session_class):
+        """Should handle database errors gracefully."""
         mock_db = MagicMock()
         mock_session_class.return_value = mock_db
         
-        # No job found
-        mock_db.query.return_value.filter.return_value.first.return_value = None
+        # Simulate database error on commit
+        mock_db.commit.side_effect = Exception("Database error")
         
-        handler = DatabaseHandler("nonexistent-job")
+        handler = DatabaseHandler("error-job")
         
-        # Should not raise error
-        handler.emit("error", "System", "This job doesn't exist")
+        # Should not raise error - handles gracefully
+        handler.emit("error", "System", "Test error handling")
         
-        mock_db.commit.assert_not_called()
-        mock_db.close.assert_called_once()
-    
-    @patch('api.database.SessionLocal')
-    def test_emit_handles_json_parse_error(self, mock_session_class):
-        """Should handle corrupted log JSON gracefully."""
-        mock_db = MagicMock()
-        mock_session_class.return_value = mock_db
-        
-        mock_job = MagicMock()
-        mock_job.logs = "invalid json {"
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_job
-        
-        handler = DatabaseHandler("job-corrupt")
-        
-        # Should not crash
-        handler.emit("warning", "System", "Handling corrupt JSON")
-        
-        # Should handle gracefully with except pass
+        # Verify rollback was called
+        mock_db.rollback.assert_called_once()
         mock_db.close.assert_called_once()
 
 
