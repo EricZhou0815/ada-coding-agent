@@ -17,11 +17,11 @@ def test_tools():
     tools = Tools()
     
     # Test list_files
-    files = tools.list_files("repo_snapshot")
-    print(f"✓ Tools work - Found {len(files)} files in repo_snapshot")
+    files = tools.list_files(".")
+    print(f"✓ Tools work - Found {len(files)} files in directory")
     
     # Test read_file
-    content = tools.read_file("repo_snapshot/README.md")
+    content = tools.read_file("README.md")
     print(f"✓ Can read files - README.md is {len(content)} characters")
 
 def test_validation_agent():
@@ -30,7 +30,8 @@ def test_validation_agent():
     llm = MockLLMClient()
     tools = Tools()
     validator = ValidationAgent(llm, tools)
-    result = validator.validate("repo_snapshot", {"acceptance_criteria": ["Test criteria"]})
+    # ValidationAgent.run(story, repo_path, context)
+    result = validator.run({"title": "Test Story"}, ".", {"global_rules": ["Test criteria"]})
     print(f"✓ Validation agent works - Result: {result}")
 
 def main():
