@@ -1,8 +1,8 @@
 """
 tools/github_client.py
 
-Thin wrapper around the GitHub REST API.
-Handles PR creation and lookup using a personal access token (GITHUB_TOKEN).
+GitHub implementation of the VCSClient interface.
+Handles PR creation, comments, CI logs using the GitHub REST API.
 """
 
 import os
@@ -10,17 +10,19 @@ import re
 import json
 import urllib.request
 import urllib.error
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from utils.logger import logger
+from tools.vcs_client import VCSClient, VCSClientFactory
 
 
-class GitHubClient:
+class GitHubClient(VCSClient):
     """
+    GitHub implementation of VCSClient.
     Communicates with the GitHub REST API using only the standard library.
-    No third-party dependencies required.
     """
 
     API_BASE = "https://api.github.com"
+    PLATFORM = "github"
 
     def __init__(self, token: Optional[str] = None):
         """
@@ -143,6 +145,13 @@ class GitHubClient:
         endpoint = f"/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
         return self._get(endpoint)
 
+    def get_pipeline_jobs(self, owner: str, repo: str, pipeline_id: int) -> Dict:
+        """
+        VCSClient interface method - alias for get_run_jobs.
+        GitHub calls pipelines "workflow runs".
+        """
+        return self.get_run_jobs(owner, repo, pipeline_id)
+
     def get_job_logs(self, owner: str, repo: str, job_id: int) -> str:
         """
         Fetches the plain text logs for a specific job.
@@ -186,7 +195,7 @@ class GitHubClient:
             raise
 
     @staticmethod
-    def parse_repo_url(url: str):
+    def parse_repo_url(url: str) -> Tuple[str, str]:
         """
         Parses a GitHub repository URL into (owner, repo) tuple.
 
@@ -206,6 +215,11 @@ class GitHubClient:
             if match:
                 return match.group(1), match.group(2)
         raise ValueError(f"Could not parse GitHub URL: {url}")
+
+    @staticmethod
+    def get_platform_name() -> str:
+        """Returns the platform name."""
+        return "github"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Internal HTTP helpers
@@ -263,3 +277,7 @@ class GitHubClient:
                 return resp.status < 400
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"GitHub API error {e.code}") from e
+
+
+# Register GitHubClient with the factory
+VCSClientFactory.register("github", GitHubClient)

@@ -118,6 +118,28 @@ class GitManager:
                 files.append(line.strip()[2:].strip())
         return files
 
+    def get_diff_summary(self) -> str:
+        """
+        Returns a human-readable summary of staged and unstaged changes.
+        Includes file names and line counts for additions/deletions.
+        """
+        # Get diff stat for staged changes
+        staged = self._run(["git", "diff", "--cached", "--stat"])
+        unstaged = self._run(["git", "diff", "--stat"])
+        
+        summary_parts = []
+        
+        if staged.stdout.strip():
+            summary_parts.append("Staged:\n" + staged.stdout.strip())
+        
+        if unstaged.stdout.strip():
+            summary_parts.append("Unstaged:\n" + unstaged.stdout.strip())
+        
+        if not summary_parts:
+            return "No changes"
+        
+        return "\n\n".join(summary_parts)
+
     # ─────────────────────────────────────────────────────────────────────────
     # Commit and push
     # ─────────────────────────────────────────────────────────────────────────

@@ -32,10 +32,12 @@ def test_list_files(mock_walk, tools):
         ("root/dir1", [], ["file2.txt"])
     ]
     files = tools.list_files("root")
+    # Normalize paths for cross-platform comparison
+    files_normalized = [f.replace("\\", "/") for f in files]
     # should ignore .git and .hidden
-    assert "file1.txt" in files
-    assert "dir1/file2.txt" in files
-    assert ".hidden" not in files
+    assert "file1.txt" in files_normalized
+    assert "dir1/file2.txt" in files_normalized
+    assert ".hidden" not in files_normalized
 
 def test_edit_file_success(tools):
     mock_content = "def test():\n    pass\n"

@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from api.database import SessionLocal, StoryJob, get_db
 from api.webhooks import vcs as vcs_webhooks
+from config import Config
 
 # In production, we drop tasks directly into Redis via Celery
 from worker.tasks import execute_sdlc_story
@@ -18,7 +19,7 @@ from worker.tasks import execute_sdlc_story
 app = FastAPI(
     title="Ada Autonomous Agent API",
     description="Scalable, isolated, multi-tenant AI developer for user stories.",
-    version="1.0"
+    version=Config.get_app_version()
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────
@@ -173,4 +174,7 @@ async def stream_job_logs(job_id: str):
 @app.get("/health")
 def health_check():
     """Simple healthcheck for ECS Target Groups"""
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "version": Config.get_app_version()
+    }

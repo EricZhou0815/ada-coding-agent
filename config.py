@@ -128,3 +128,126 @@ class Config:
         else:
             from isolation.sandbox import SandboxBackend
             return SandboxBackend(workspace_root=workspace_root)
+
+    @classmethod
+    def get_vcs_platform(cls) -> str:
+        """
+        Determine which VCS platform to use.
+        Options: "github" (default), "gitlab"
+        """
+        return os.getenv("VCS_PLATFORM", "github").lower()
+
+    @classmethod
+    def get_vcs_client(cls):
+        """
+        Instantiate and return the configured VCS client.
+        
+        Uses VCS_PLATFORM env var to select between:
+        - "github" (default): Uses GITHUB_TOKEN
+        - "gitlab": Uses GITLAB_TOKEN and optionally GITLAB_URL
+        
+        Returns:
+            VCSClient implementation for the configured platform.
+        """
+        from tools.vcs_client import VCSClientFactory
+        
+        # Import clients to register them with the factory
+        # This import has side effects (registration)
+        from tools.github_client import GitHubClient  # noqa: F401
+        
+        platform = cls.get_vcs_platform()
+        
+        # Import GitLab client only if needed (lazy loading)
+        if platform == "gitlab":
+            from tools.gitlab_client import GitLabClient  # noqa: F401
+        
+        return VCSClientFactory.create(platform)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Ada Management Scope Configuration
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @classmethod
+    def get_ada_branch_prefix(cls) -> str:
+        """
+        Get the branch prefix for Ada-managed branches.
+        Default: "ada-ai/" (aligns with @ada-ai mention)
+        """
+        return os.getenv("ADA_BRANCH_PREFIX", "ada-ai/")
+
+    @classmethod
+    def is_ada_managed_branch(cls, branch_name: str) -> bool:
+        """
+        Check if a branch is managed by Ada based on naming convention.
+        
+        Args:
+            branch_name: The branch name to check
+            
+        Returns:
+            True if branch follows Ada's naming pattern
+        """
+        prefix = cls.get_ada_branch_prefix()
+        return branch_name.startswith(prefix)
+
+    @classmethod
+    def should_handle_all_prs(cls) -> bool:
+        """
+        Check if Ada should respond to @ada-ai on ALL PRs.
+        
+        Returns:
+            True if ADA_HANDLE_ALL_PRS=true, False otherwise (default)
+        """
+        return os.getenv("ADA_HANDLE_ALL_PRS", "false").lower() == "true"
+
+    @classmethod
+    def should_auto_fix_all_ci(cls) -> bool:
+        """
+        Check if Ada should auto-fix CI failures on ALL branches.
+        
+        Returns:
+            True if ADA_AUTO_FIX_CI_ALL=true, False otherwise (default)
+        """
+        return os.getenv("ADA_AUTO_FIX_CI_ALL", "false").lower() == "true"
+
+    @classmethod
+    def should_handle_pr_comment(cls, branch_name: str) -> bool:
+        """
+        Determine if Ada should respond to a @ada-ai comment on this PR.
+        
+        Args:
+            branch_name: The PR's head branch name
+            
+        Returns:
+            True if Ada should handle the comment
+        """
+        if cls.should_handle_all_prs():
+            return True
+        return cls.is_ada_managed_branch(branch_name)
+
+    @classmethod
+    def should_auto_fix_ci(cls, branch_name: str) -> bool:
+        """
+        Determine if Ada should auto-fix CI failures on this branch.
+        
+        Args:
+            branch_name: The branch name where CI failed
+            
+        Returns:
+            True if Ada should attempt to fix the CI failure
+        """
+        if cls.should_auto_fix_all_ci():
+            return True
+        return cls.is_ada_managed_branch(branch_name)
+
+    @classmethod
+    def get_app_version(cls) -> str:
+        """
+        Get the application version for documentation and monitoring.
+        
+        This is separate from API versioning (/api/v1/) which stays hardcoded.
+        Use semantic versioning: MAJOR.MINOR.PATCH
+        
+        Returns:
+            Version string (e.g., "1.0.0")
+        """
+        return os.getenv("APP_VERSION", "1.0.0")

@@ -1,18 +1,57 @@
 import os
 import hmac
 import hashlib
+import re
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Header
 from pydantic import BaseModel
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 from worker.tasks import fix_ci_failure, apply_pr_feedback
+from config import Config
 
 router = APIRouter()
 logger = logging.getLogger("VCSWebhooks")
 
 # Webhook secret for HMAC validation - REQUIRED in production
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+# Trigger prefix for Ada commands in PR comments
+ADA_TRIGGER_PREFIX = "@ada-ai"
+
+
+def parse_ada_command(comment_body: str) -> Tuple[bool, str]:
+    """
+    Check if comment is addressed to Ada and extract the command.
+    
+    If @ada-ai is present anywhere in the comment, the entire comment
+    (with @ada-ai removed) is treated as the instruction.
+    
+    Supported formats:
+        @ada-ai please fix the null check
+        Please @ada-ai fix this bug
+        Fix the bug @ada-ai
+        
+    Returns:
+        (is_ada_command, extracted_instruction)
+    """
+    body = comment_body.strip()
+    
+    # Case-insensitive check for @ada-ai anywhere in the comment
+    pattern = r'@ada-ai[:\s]*'
+    
+    if re.search(pattern, body, re.IGNORECASE):
+        # Remove @ada-ai mention and optional colon/whitespace after it
+        instruction = re.sub(pattern, '', body, flags=re.IGNORECASE).strip()
+        
+        # If there's meaningful instruction text, return it
+        if instruction:
+            return True, instruction
+        
+        # If comment was just "@ada-ai" with no instruction, ignore it
+        return False, ""
+    
+    return False, ""
 
 
 def verify_github_signature(payload_body: bytes, signature_header: Optional[str]) -> bool:
@@ -66,11 +105,9 @@ def is_trusted_commenter(owner: str, repo: str, username: str) -> bool:
     Returns:
         True if user is a collaborator, False otherwise
     """
-    from tools.github_client import GitHubClient
-    
     try:
-        gh = GitHubClient()
-        return gh.is_collaborator(owner, repo, username)
+        vcs = Config.get_vcs_client()
+        return vcs.is_collaborator(owner, repo, username)
     except Exception as e:
         logger.error(f"Failed to check collaborator status for {username}: {e}")
         # Fail closed - deny access if we can't verify
@@ -123,17 +160,30 @@ async def github_webhook_handler(
         # We only care when a run finishes and fails
         if action == "completed" and workflow_run.get("conclusion") == "failure":
             
-            # Check if this run was on an Ada-managed branch
+            # Check if Ada should handle CI failures on this branch
             branch_name = workflow_run.get("head_branch", "")
-            if not branch_name.startswith("ada/"):
-                return {"status": "ignored", "reason": f"Branch {branch_name} is not managed by Ada."}
+            if not Config.should_auto_fix_ci(branch_name):
+                return {"status": "ignored", "reason": f"Branch {branch_name} is not in Ada's auto-fix scope."}
                 
             run_id = workflow_run.get("id")
+            workflow_name = workflow_run.get("name", "CI")
             
             logger.info(f"Detected CI failure on Ada branch: {branch_name} (Run ID: {run_id})")
             
+            # Post acknowledgment comment on the PR (if we can find it)
+            try:
+                vcs = Config.get_vcs_client()
+                prs = vcs.get_pull_requests(owner, repo)
+                pr_number = next((p["number"] for p in prs if p["head"]["ref"] == branch_name), None)
+                if pr_number:
+                    vcs.create_issue_comment(
+                        owner, repo, pr_number,
+                        f"🔍 **Ada:** CI workflow `{workflow_name}` failed. I'm analyzing the logs and will attempt a fix..."
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to post CI failure acknowledgment: {e}")
+            
             # Dispatch Celery worker to handle the fix
-            # Note: We pass the run_id so the worker can fetch the exact terminal logs
             fix_ci_failure.delay(
                 repo_url=repo_url,
                 owner=owner,
@@ -158,19 +208,50 @@ async def github_webhook_handler(
             pr_number = issue.get("number")
             commenter = comment.get("user", {}).get("login", "")
             
+            # Check if comment is addressed to Ada (requires @ada-ai prefix)
+            is_ada_command, instruction = parse_ada_command(body)
+            if not is_ada_command:
+                return {"status": "ignored", "reason": "Comment not addressed to @ada-ai"}
+            
+            # Check if Ada should handle comments on this PR's branch
+            pr_branch = issue.get("pull_request", {}).get("head", {}).get("ref", "")
+            if not pr_branch:
+                # Fetch PR details to get branch name
+                try:
+                    vcs = Config.get_vcs_client()
+                    pr_data = vcs.get_pull_request(owner, repo, pr_number)
+                    pr_branch = pr_data.get("head", {}).get("ref", "")
+                except Exception as e:
+                    logger.warning(f"Could not fetch PR branch: {e}")
+                    pr_branch = ""
+            
+            if not Config.should_handle_pr_comment(pr_branch):
+                logger.info(f"Ignoring @ada-ai comment on non-Ada branch: {pr_branch}")
+                return {"status": "ignored", "reason": f"Branch {pr_branch} is not in Ada's scope."}
+            
             # Security: Only allow repo collaborators to trigger Ada
             if not is_trusted_commenter(owner, repo, commenter):
                 logger.warning(f"Ignoring PR comment from non-collaborator: {commenter}")
                 return {"status": "ignored", "reason": f"User {commenter} is not a repository collaborator"}
             
-            logger.info(f"Detected PR comment from collaborator {commenter} on #{pr_number}: {body[:50]}...")
+            logger.info(f"Ada command from {commenter} on PR #{pr_number}: {instruction[:50]}...")
+            
+            # Post immediate acknowledgment (fire and forget)
+            try:
+                vcs = Config.get_vcs_client()
+                vcs.create_issue_comment(
+                    owner, repo, pr_number,
+                    f"🤖 **Ada:** Got it, @{commenter}! Working on your request...\n\n> {instruction[:200]}{'...' if len(instruction) > 200 else ''}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to post acknowledgment comment: {e}")
             
             apply_pr_feedback.delay(
                 repo_url=repo_url,
                 owner=owner,
                 repo=repo,
                 pr_number=pr_number,
-                feedback=body
+                feedback=instruction
             )
             
             return {"status": "dispatched", "job": "apply_pr_feedback"}
