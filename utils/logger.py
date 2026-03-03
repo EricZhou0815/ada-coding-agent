@@ -73,8 +73,10 @@ class DatabaseHandler(LogHandler):
                 })
                 job.logs = json.dumps(logs)
                 db.commit()
-            except:
-                pass
+            except Exception as e:
+                # Log to stderr so failures aren't completely silent
+                import sys
+                print(f"[Logger] Failed to persist log to database: {e}", file=sys.stderr)
         db.close()
 
 class RedisHandler(LogHandler):

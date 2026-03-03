@@ -7,72 +7,7 @@ Items are prioritized based on risk and impact.
 
 ## 🟡 P1: Address Before Public Beta
 
-### 1. Shell Command Injection Risk
-**Location:** `tools/tools.py` - `run_command()` method  
-**Risk:** HIGH - LLM can hallucinate malicious shell commands  
-**Current State:** `shell=True` with no command filtering
-
-**Mitigation (Current):**
-- Only deploy for internal/trusted users
-- Don't expose to public internet without auth
-
-**Recommended Fix:**
-- Implement command whitelist (e.g., only `npm`, `pytest`, `make`)
-- Use `shlex.split()` and avoid `shell=True`
-- Add audit logging for all executed commands
-
-```python
-# Example fix
-ALLOWED_COMMANDS = {"npm", "pytest", "python", "make", "cargo"}
-
-def run_command(self, command: str) -> Dict:
-    parts = shlex.split(command)
-    if parts[0] not in ALLOWED_COMMANDS:
-        return {"error": f"Command '{parts[0]}' not in allowlist"}
-    result = subprocess.run(parts, capture_output=True, text=True)  # No shell=True
-    ...
-```
-
----
-
-### 2. Silent Exception Swallowing
-**Location:** `utils/logger.py` lines 66-68  
-**Risk:** MEDIUM - Database write failures go unnoticed, logs silently lost
-
-**Current State:**
-```python
-except:
-    pass  # Silent failure
-```
-
-**Recommended Fix:**
-```python
-except Exception as e:
-    # At minimum, log to stderr
-    import sys
-    print(f"[Logger] Failed to persist log: {e}", file=sys.stderr)
-```
-
----
-
-### 3. No Webhook Idempotency
-**Location:** `api/webhooks/vcs.py`, `worker/tasks.py`  
-**Risk:** MEDIUM - Webhook retries could trigger duplicate CI fixes or PR updates
-
-**Mitigation (Current):**
-- GitHub webhook retries are infrequent in practice
-
-**Recommended Fix:**
-- Store `X-GitHub-Delivery` header ID in Redis
-- Check for duplicates before dispatching task
-- TTL of ~1 hour for deduplication keys
-
-```python
-delivery_id = request.headers.get("X-GitHub-Delivery")
-if redis_client.exists(f"webhook:{delivery_id}"):
-    return {"status": "ignored", "reason": "duplicate"}
-redis_client.setex(f"webhook:{delivery_id}", 3600, "1")
-```
+**All P1 items have been resolved!** See "Resolved" section below.
 
 ---
 
@@ -205,6 +140,9 @@ os.replace(temp_path, path)  # Atomic on POSIX/Windows
 
 | Issue | Resolution | Date |
 |-------|------------|------|
+| Shell command injection risk | Implemented command allowlist with security checks | 2026-03-03 |
+| Silent exception swallowing | Added stderr logging for database write failures | 2026-03-03 |
+| Webhook idempotency | Implemented Redis deduplication with X-GitHub-Delivery | 2026-03-03 |
 | Webhook signature verification | Implemented HMAC-SHA256 validation | 2026-03-03 |
 | PR comment author validation | Added collaborator check | 2026-03-03 |
 | Single API key point of failure | Implemented key pool rotation | 2026-03-03 |
