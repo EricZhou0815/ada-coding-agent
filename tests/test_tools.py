@@ -68,7 +68,7 @@ def test_search_codebase(mock_run, tools):
     result = tools.search_codebase("hello", ".")
     mock_run.assert_called_once()
     assert result["stdout"] == "file.py:1:print('hello')"
-    assert result["exit_code"] == 0
+    assert result["returncode"] == 0
 
 @patch("subprocess.run")
 def test_search_codebase_truncate(mock_run, tools):
@@ -82,11 +82,22 @@ def test_search_codebase_truncate(mock_run, tools):
 
 @patch("subprocess.run")
 def test_run_command(mock_run, tools):
+    """Test run_command with allowlisted command."""
     mock_run.return_value.stdout = "test output"
     mock_run.return_value.stderr = ""
     mock_run.return_value.returncode = 0
     
-    result = tools.run_command("echo 'test output'")
-    mock_run.assert_called_once_with("echo 'test output'", shell=True, capture_output=True, text=True)
+    # Use 'python' which is in the default allowlist
+    result = tools.run_command("python --version")
+    
+    # Should call subprocess.run with parsed command list, no shell=True
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args
+    assert call_args[0][0] == ['python', '--version']  # Command split into list
+    assert call_args[1]['capture_output'] is True
+    assert call_args[1]['text'] is True
+    assert call_args[1]['timeout'] == 300
+    assert 'shell' not in call_args[1]  # No shell=True
+    
     assert result["stdout"] == "test output"
-    assert result["exit_code"] == 0
+    assert result["returncode"] == 0

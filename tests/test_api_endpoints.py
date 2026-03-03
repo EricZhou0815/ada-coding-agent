@@ -91,7 +91,8 @@ class TestStreamEndpoint:
         mock_redis.return_value = mock_client
         
         # Stream endpoint should return 200
-        response = client.get("/api/v1/jobs/test-job-123/stream", timeout=1)
+        # Note: Don't use timeout with TestClient (deprecated)
+        response = client.get("/api/v1/jobs/test-job-123/stream")
         assert response.status_code == 200
 
 

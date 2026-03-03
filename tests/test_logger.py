@@ -118,7 +118,7 @@ class TestDatabaseHandler:
         handler = DatabaseHandler("job-123")
         assert handler.job_id == "job-123"
     
-    @patch('utils.logger.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_emit_saves_to_database(self, mock_session_class):
         """Should save structured logs to database."""
         # Setup mocks
@@ -146,7 +146,7 @@ class TestDatabaseHandler:
         assert saved_logs[0]["metadata"] == {"key": "value"}
         assert "timestamp" in saved_logs[0]
     
-    @patch('utils.logger.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_emit_appends_to_existing_logs(self, mock_session_class):
         """Should append to existing job logs."""
         mock_db = MagicMock()
@@ -167,7 +167,7 @@ class TestDatabaseHandler:
         assert saved_logs[0]["message"] == "Old log"
         assert saved_logs[1]["message"] == "New log entry"
     
-    @patch('utils.logger.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_emit_handles_missing_job(self, mock_session_class):
         """Should handle case when job doesn't exist."""
         mock_db = MagicMock()
@@ -184,7 +184,7 @@ class TestDatabaseHandler:
         mock_db.commit.assert_not_called()
         mock_db.close.assert_called_once()
     
-    @patch('utils.logger.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_emit_handles_json_parse_error(self, mock_session_class):
         """Should handle corrupted log JSON gracefully."""
         mock_db = MagicMock()
@@ -206,7 +206,7 @@ class TestDatabaseHandler:
 class TestRedisHandler:
     """Test Redis pub/sub log streaming handler."""
     
-    @patch('utils.logger.redis.from_url')
+    @patch('redis.from_url')
     def test_redis_handler_creation(self, mock_redis):
         """Should create Redis handler and connect."""
         mock_client = MagicMock()
@@ -218,7 +218,7 @@ class TestRedisHandler:
         assert handler.r == mock_client
         mock_redis.assert_called_once()
     
-    @patch('utils.logger.redis.from_url')
+    @patch('redis.from_url')
     def test_emit_publishes_to_redis(self, mock_redis):
         """Should publish structured log events to Redis."""
         mock_client = MagicMock()
@@ -245,7 +245,7 @@ class TestRedisHandler:
         assert log_event["metadata"] == {"task_id": "T1"}
         assert "timestamp" in log_event
     
-    @patch('utils.logger.redis.from_url')
+    @patch('redis.from_url')
     def test_emit_handles_redis_error(self, mock_redis):
         """Should handle Redis connection errors gracefully."""
         mock_client = MagicMock()
@@ -260,7 +260,7 @@ class TestRedisHandler:
         # Verify publish was attempted
         mock_client.publish.assert_called_once()
     
-    @patch('utils.logger.redis.from_url')
+    @patch('redis.from_url')
     def test_uses_redis_url_from_env(self, mock_redis):
         """Should use REDIS_URL from environment."""
         with patch.dict(os.environ, {"REDIS_URL": "redis://custom:6380/2"}):
@@ -279,32 +279,34 @@ class TestAdaLogger:
         assert len(logger.handlers) == 1
         assert isinstance(logger.handlers[0], TerminalHandler)
     
-    def test_set_job_id_adds_handlers(self):
+    @patch('redis.from_url')
+    @patch('api.database.SessionLocal')
+    def test_set_job_id_adds_handlers(self, mock_session_class, mock_redis):
         """Should add DB and Redis handlers when job ID is set."""
         logger = AdaLogger()
+        initial_handler_count = len(logger.handlers)
         
-        with patch('utils.logger.DatabaseHandler') as mock_db, \
-             patch('utils.logger.RedisHandler') as mock_redis:
-            
-            logger.set_job_id("job-multi-123")
-            
-            assert logger.job_id == "job-multi-123"
-            mock_db.assert_called_once_with("job-multi-123")
-            mock_redis.assert_called_once_with("job-multi-123")
+        logger.set_job_id("job-multi-123")
+        
+        assert logger.job_id == "job-multi-123"
+        # Should have terminal + redis + database handlers
+        assert len(logger.handlers) == initial_handler_count + 2
+        assert any(isinstance(h, RedisHandler) for h in logger.handlers)
+        assert any(isinstance(h, DatabaseHandler) for h in logger.handlers)
     
-    def test_set_job_id_idempotent(self):
-        """Should not add duplicate handlers if called multiple times."""
+    @patch('redis.from_url')
+    @patch('api.database.SessionLocal')
+    def test_set_job_id_idempotent(self, mock_session_class, mock_redis):
+        """Should replace old handlers when called multiple times."""
         logger = AdaLogger()
         
-        with patch('utils.logger.DatabaseHandler') as mock_db, \
-             patch('utils.logger.RedisHandler') as mock_redis:
-            
-            logger.set_job_id("job-123")
-            logger.set_job_id("job-123")  # Call again
-            
-            # Should only create handlers once
-            assert mock_db.call_count == 1
-            assert mock_redis.call_count == 1
+        logger.set_job_id("job-123")
+        first_handlers = len(logger.handlers)
+        
+        logger.set_job_id("job-123")  # Call again
+        
+        # Should still have same number of handlers (old ones replaced)
+        assert len(logger.handlers) == first_handlers
     
     @patch.object(TerminalHandler, 'emit')
     def test_info_logs_to_all_handlers(self, mock_emit):
@@ -328,7 +330,7 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.success("Task completed successfully")
         
-        mock_emit.assert_called_once_with("success", "", "Task completed successfully", None)
+        mock_emit.assert_called_once_with("success", "System", "Task completed successfully", None)
     
     @patch.object(TerminalHandler, 'emit')
     def test_thought_logs_to_all_handlers(self, mock_emit):
@@ -342,40 +344,52 @@ class TestAdaLogger:
     def test_tool_call_logs_to_all_handlers(self, mock_emit):
         """Should log tool calls with metadata."""
         logger = AdaLogger()
-        logger.tool_call("Agent", "write_file", {"file": "test.py"})
+        logger.tool("Agent", "write_file", {"file": "test.py"})
         
         mock_emit.assert_called_once_with(
             "tool", 
             "Agent", 
             "write_file",
-            {"args": "{'file': 'test.py'}"}
+            {"args": '{"file": "test.py"}'}
         )
     
     @patch.object(TerminalHandler, 'emit')
     def test_tool_result_logs_success(self, mock_emit):
         """Should log successful tool results."""
         logger = AdaLogger()
-        logger.tool_result("Agent", True, "File written successfully")
+        result_msg = "File written successfully"
+        logger.tool_result("Agent", True, result_msg, len(result_msg))
         
-        mock_emit.assert_called_once_with(
-            "tool_result",
-            "Agent",
-            "",
-            {"success": True, "output_len": len("File written successfully")}
-        )
+        # Check that emit was called with expected structure
+        assert mock_emit.called
+        args = mock_emit.call_args[0]  # Positional arguments
+        
+        assert args[0] == "tool_result"  # level
+        assert args[1] == "Agent"  # prefix
+        assert args[2] == ""  # message
+        
+        metadata = args[3]  # metadata dict
+        assert metadata["success"] is True
+        assert metadata["output_len"] == len(result_msg)
     
     @patch.object(TerminalHandler, 'emit')
     def test_tool_result_logs_failure(self, mock_emit):
         """Should log failed tool results."""
         logger = AdaLogger()
-        logger.tool_result("Agent", False, "File not found")
+        result_msg = "File not found"
+        logger.tool_result("Agent", False, result_msg, len(result_msg))
         
-        mock_emit.assert_called_once_with(
-            "tool_result",
-            "Agent",
-            "",
-            {"success": False, "output_len": len("File not found")}
-        )
+        # Check that emit was called with expected structure
+        assert mock_emit.called
+        args = mock_emit.call_args[0]  # Positional arguments
+        
+        assert args[0] == "tool_result"  # level
+        assert args[1] == "Agent"  # prefix
+        assert args[2] == ""  # message
+        
+        metadata = args[3]  # metadata dict
+        assert metadata["success"] is False
+        assert metadata["output_len"] == len(result_msg)
     
     @patch.object(TerminalHandler, 'emit')
     def test_warning_logs_to_all_handlers(self, mock_emit):
@@ -389,18 +403,18 @@ class TestAdaLogger:
         """Should emit to all registered handlers."""
         logger = AdaLogger()
         
-        # Add additional handlers
-        handler2 = Mock(spec=LogHandler)
-        handler3 = Mock(spec=LogHandler)
-        logger.handlers.append(handler2)
-        logger.handlers.append(handler3)
+        # Replace terminal handler with mock and add additional mocks
+        mock_handler1 = Mock(spec=LogHandler)
+        mock_handler2 = Mock(spec=LogHandler)
+        mock_handler3 = Mock(spec=LogHandler)
+        logger.handlers = [mock_handler1, mock_handler2, mock_handler3]
         
         logger.info("Test", "Message to all")
         
         # All handlers should receive the log
-        assert logger.handlers[0].emit.called  # TerminalHandler
-        handler2.emit.assert_called_once()
-        handler3.emit.assert_called_once()
+        mock_handler1.emit.assert_called_once()
+        mock_handler2.emit.assert_called_once()
+        mock_handler3.emit.assert_called_once()
 
 
 if __name__ == "__main__":

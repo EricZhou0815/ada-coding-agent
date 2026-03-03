@@ -86,7 +86,7 @@ class TestAppendJobLog:
 class TestUpdateJobStatus:
     """Test job status update helper."""
     
-    @patch('worker.tasks.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_update_job_status_success(self, mock_session_class):
         """Should update job status in database."""
         # Setup mocks
@@ -105,7 +105,7 @@ class TestUpdateJobStatus:
         mock_db.commit.assert_called_once()
         mock_db.close.assert_called_once()
     
-    @patch('worker.tasks.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_update_job_status_job_not_found(self, mock_session_class):
         """Should handle case when job doesn't exist."""
         mock_db = MagicMock()
@@ -121,7 +121,7 @@ class TestUpdateJobStatus:
         mock_db.commit.assert_not_called()
         mock_db.close.assert_called_once()
     
-    @patch('worker.tasks.SessionLocal')
+    @patch('api.database.SessionLocal')
     def test_update_job_status_all_states(self, mock_session_class):
         """Should handle all job status states."""
         mock_db = MagicMock()
@@ -183,12 +183,12 @@ class TestTaskConfiguration:
 class TestExecuteCodingTaskHelper:
     """Test the _execute_coding_task helper function."""
     
-    @patch('worker.tasks.GitManager')
-    @patch('worker.tasks.Config')
-    @patch('worker.tasks.CodingAgent')
-    @patch('worker.tasks.Tools')
+    @patch('tools.git_manager.GitManager')
+    @patch('config.Config')
+    @patch('agents.coding_agent.CodingAgent')
+    @patch('tools.tools.Tools')
     def test_execute_coding_task_success(
-        self, mock_tools, mock_agent_class, mock_config, mock_git_manager, tmp_path
+        self, mock_tools_class, mock_agent_class, mock_config, mock_git_manager, tmp_path
     ):
         """Should successfully execute coding task."""
         from worker.tasks import _execute_coding_task
@@ -232,7 +232,7 @@ class TestExecuteCodingTaskHelper:
         mock_git.checkout.assert_called_once_with("feature-branch")
         mock_agent.run.assert_called_once()
     
-    @patch('worker.tasks.GitManager')
+    @patch('tools.git_manager.GitManager')
     def test_execute_coding_task_clone_failure(self, mock_git_manager, tmp_path):
         """Should handle git clone failures gracefully."""
         from worker.tasks import _execute_coding_task
@@ -257,11 +257,12 @@ class TestExecuteCodingTaskHelper:
         assert git is None
         mock_logger.exception.assert_called_once()
     
-    @patch('worker.tasks.GitManager')
-    @patch('worker.tasks.Config')
-    @patch('worker.tasks.CodingAgent')
+    @patch('tools.git_manager.GitManager')
+    @patch('config.Config')
+    @patch('agents.coding_agent.CodingAgent')
+    @patch('tools.tools.Tools')
     def test_execute_coding_task_no_changes(
-        self, mock_agent_class, mock_config, mock_git_manager, tmp_path
+        self, mock_tools_class, mock_agent_class, mock_config, mock_git_manager, tmp_path
     ):
         """Should detect when agent makes no changes."""
         from worker.tasks import _execute_coding_task
