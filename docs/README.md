@@ -12,6 +12,8 @@ Comprehensive guides and documentation for the Ada Autonomous AI Software Engine
 ### Architecture & Design
 
 - **[Design Document](../design_doc/design.md)** - System architecture and design decisions
+- **[Architecture Review Report](review_report.md)** - Comprehensive review of architecture, design patterns, scalability, and security
+- **[AI Review Prompt Template](ai_review_prompt.md)** - Structured prompt for automated architecture reviews using AI
 
 ### Operation Guides
 
@@ -37,6 +39,12 @@ Comprehensive guides and documentation for the Ada Autonomous AI Software Engine
 **Understand how Ada works**
 - [Design Document](../design_doc/design.md) - Architecture deep dive
 - [Main README](../README.md#architecture) - System flow diagrams
+
+**Review project status and roadmap**
+- [Architecture Review Report](review_report.md) - Security audit, scalability analysis, and prioritized improvements
+
+**Run automated architecture reviews**
+- [AI Review Prompt Template](ai_review_prompt.md) - Generate automated reviews using AI assistants
 
 **Troubleshoot issues**
 - [Webhook Setup Guide](WEBHOOK_SETUP.md#troubleshooting) - Webhook debugging
@@ -86,4 +94,4 @@ When adding new features or making significant changes:
 
 ---
 
-**Last Updated:** March 2026
+**Last Updated:** March 3, 2026

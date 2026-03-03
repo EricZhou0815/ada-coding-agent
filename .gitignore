@@ -83,3 +83,5 @@ temp/
 tmp/
 .ada_workspace/
 *.db
+
+reports/
