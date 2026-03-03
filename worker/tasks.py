@@ -47,6 +47,83 @@ def _update_job_status(job_id, status):
     db.close()
 
 
+# ── Common Task Helpers ─────────────────────────────────────────────────────
+# Extract shared patterns between fix_ci_failure and apply_pr_feedback
+
+def _create_workspace(prefix: str) -> Path:
+    """
+    Create an isolated workspace directory for task execution.
+    
+    Args:
+        prefix: Prefix for the workspace directory name
+        
+    Returns:
+        Path to the created workspace directory
+    """
+    base_tmp = Path(os.getenv("ADA_TMP_DIR", "/tmp/ada_runs")).resolve()
+    workspace_dir = base_tmp / prefix
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    return workspace_dir
+
+
+def _execute_coding_task(
+    repo_url: str,
+    branch_name: str,
+    task_definition: dict,
+    workspace_dir: Path,
+    logger: logging.Logger
+) -> tuple[bool, bool, Optional['GitManager']]:
+    """
+    Common workflow for agent-based tasks:
+    1. Clone repository and checkout target branch
+    2. Initialize CodingAgent with LLM and Tools
+    3. Execute the task
+    4. Return results
+    
+    Args:
+        repo_url: Repository URL to clone
+        branch_name: Branch to checkout
+        task_definition: Task dict with title, description, acceptance_criteria
+        workspace_dir: Workspace directory for the operation
+        logger: Logger instance for this task
+        
+    Returns:
+        Tuple of (agent_success, has_changes, git_manager)
+        Returns (False, False, None) on error
+    """
+    from tools.git_manager import GitManager
+    from tools.tools import Tools
+    from config import Config
+    from agents.coding_agent import CodingAgent
+    
+    try:
+        # Extract repo name from URL
+        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+        repo_path = str(workspace_dir / repo_name)
+        
+        # Clone and checkout
+        logger.info(f"Cloning {repo_url} to {repo_path}")
+        git = GitManager.clone(repo_url, repo_path)
+        git.checkout(branch_name)
+        
+        # Initialize CodingAgent
+        llm = Config.get_llm_client()
+        coding_agent = CodingAgent(llm, Tools())
+        
+        # Execute task
+        logger.info(f"Running CodingAgent on task: {task_definition['title']}")
+        result = coding_agent.run(task_definition, repo_path, context={})
+        
+        has_changes = git.has_changes()
+        logger.info(f"Task completed. Success: {result.success}, Has changes: {has_changes}")
+        
+        return result.success, has_changes, git
+        
+    except Exception as e:
+        logger.exception(f"Error during coding task execution: {e}")
+        return False, False, None
+
+
 @celery_app.task(bind=True)
 def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict, use_mock: bool = False):
     """
@@ -122,10 +199,7 @@ def fix_ci_failure(self, repo_url: str, owner: str, repo: str, branch_name: str,
     Surgical worker task: Wakes up when CI fails, reads the logs, and tries to patch the code.
     Includes retry limiting to prevent infinite fix loops.
     """
-    from tools.git_manager import GitManager
-    from tools.tools import Tools
     from config import Config
-    from agents.coding_agent import CodingAgent
     
     logger = logging.getLogger("CeleryFixTask")
     logger.info(f"Initiating CI Fix for branch: {branch_name} on repo: {owner}/{repo}")
@@ -163,7 +237,7 @@ def fix_ci_failure(self, repo_url: str, owner: str, repo: str, branch_name: str,
     redis_client.setex(retry_key, CI_RETRY_KEY_TTL, current_retries + 1)
     logger.info(f"CI fix attempt {current_retries + 1}/{MAX_CI_FIX_RETRIES} for {branch_name}")
     
-    # 1. Fetch failing logs
+    # Fetch failing CI logs
     try:
         jobs_data = vcs.get_pipeline_jobs(owner, repo, run_id)
         failed_jobs = [j for j in jobs_data.get("jobs", []) if j.get("conclusion") == "failure"]
@@ -178,7 +252,7 @@ def fix_ci_failure(self, repo_url: str, owner: str, repo: str, branch_name: str,
         if not ci_logs:
             ci_logs = "No detailed logs found for the failed jobs."
         
-        # Truncate logs if too long for the LLM context (e.g., last 20k characters)
+        # Truncate logs if too long for the LLM context (last 20k characters)
         if len(ci_logs) > 20000:
             ci_logs = "...[TRUNCATED]...\n" + ci_logs[-20000:]
             
@@ -186,33 +260,24 @@ def fix_ci_failure(self, repo_url: str, owner: str, repo: str, branch_name: str,
         logger.error(f"Failed to fetch CI logs: {e}")
         ci_logs = f"Error fetching logs via GitHub API: {str(e)}"
 
-    # 2. Create isolated /tmp/ folder
-    base_tmp = Path(os.getenv("ADA_TMP_DIR", "/tmp/ada_runs")).resolve()
-    workspace_dir = base_tmp / f"fix_{run_id}"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    # Create isolated workspace
+    workspace_dir = _create_workspace(f"fix_{run_id}")
     
     try:
-        # 3. Clone repo, but checkout the broken branch
-        repo_path = str(workspace_dir / repo)
-        git = GitManager.clone(repo_url, repo_path)
-        git.checkout(branch_name)
-        
-        # 4. Initialize the CodingAgent
-        llm = Config.get_llm_client()
-        coding_agent = CodingAgent(llm, Tools())
-        
-        # 5. Formulate a targeted task
+        # Build task definition
         task = {
             "title": f"Fix CI Pipeline Failure on {branch_name}",
             "description": f"The CI test suite just failed (attempt {current_retries + 1}/{MAX_CI_FIX_RETRIES}). Here are the logs for the failed jobs:\n\n{ci_logs}\n\nPlease analyze the logs, find the bug in the code, and fix it.",
             "acceptance_criteria": ["The bug causing the CI failure is resolved."]
         }
         
-        # 6. Run the agent natively on the codebase
-        result = coding_agent.run(task, repo_path, context={})
+        # Execute coding task using common helper
+        success, has_changes, git = _execute_coding_task(
+            repo_url, branch_name, task, workspace_dir, logger
+        )
         
-        # 7. Push the fix (or report failure)
-        if result.success and git.has_changes():
+        # Handle results
+        if success and has_changes and git:
             git.commit("fix: resolve continuous integration test failures")
             git.push(branch_name)
             logger.info(f"Pushed CI fix for {branch_name} successfully!")
@@ -223,9 +288,6 @@ def fix_ci_failure(self, repo_url: str, owner: str, repo: str, branch_name: str,
                     f"🔧 **Ada:** I've pushed a fix for the CI failure (attempt {current_retries + 1}).\n\n"
                     f"The CI pipeline should restart automatically. If it fails again, I'll take another look."
                 )
-            
-            # Reset retry counter on successful push (CI will re-run and tell us if it worked)
-            # Note: We don't reset here - we wait for CI to pass, which won't trigger another webhook
             
             return "SUCCESS"
         else:
@@ -257,17 +319,14 @@ def apply_pr_feedback(self, repo_url: str, owner: str, repo: str, pr_number: int
     Surgical worker task: Applies human engineer code-review feedback to a PR.
     Includes detailed feedback about what was changed.
     """
-    from tools.git_manager import GitManager
-    from tools.tools import Tools
     from config import Config
-    from agents.coding_agent import CodingAgent
 
     logger = logging.getLogger("CeleryFeedbackTask")
     logger.info(f"Applying Human Feedback on PR #{pr_number}")
     
     vcs = Config.get_vcs_client()
     
-    # 1. Fetch PR details to get branch name
+    # Fetch PR details to get branch name
     try:
         pr_data = vcs.get_pull_request(owner, repo, pr_number)
         branch_name = pr_data["head"]["ref"]
@@ -279,32 +338,24 @@ def apply_pr_feedback(self, repo_url: str, owner: str, repo: str, pr_number: int
         )
         return "ERROR"
 
-    # 2. Create isolated /tmp/ folder
-    base_tmp = Path(os.getenv("ADA_TMP_DIR", "/tmp/ada_runs")).resolve()
-    workspace_dir = base_tmp / f"feedback_{pr_number}"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    # Create isolated workspace
+    workspace_dir = _create_workspace(f"feedback_{pr_number}")
     
     try:
-        # 3. Clone and checkout
-        repo_path = str(workspace_dir / repo)
-        git = GitManager.clone(repo_url, repo_path)
-        git.checkout(branch_name)
-        
-        # 4. Initialize CodingAgent
-        llm = Config.get_llm_client()
-        coding_agent = CodingAgent(llm, Tools())
-        
-        # 5. Build task
+        # Build task definition
         task = {
             "title": f"Apply Feedback on PR #{pr_number}",
             "description": f"An engineer has reviewed your PR and requested changes:\n\n> {feedback}\n\nPlease apply these changes.",
             "acceptance_criteria": ["All requested feedback has been implemented."]
         }
         
-        # 6. Run
-        result = coding_agent.run(task, repo_path, context={})
+        # Execute coding task using common helper
+        success, has_changes, git = _execute_coding_task(
+            repo_url, branch_name, task, workspace_dir, logger
+        )
         
-        if result.success and git.has_changes():
+        # Handle results
+        if success and has_changes and git:
             # Get summary of changes before committing
             changes_summary = git.get_diff_summary() if hasattr(git, 'get_diff_summary') else ""
             
@@ -318,7 +369,7 @@ def apply_pr_feedback(self, repo_url: str, owner: str, repo: str, pr_number: int
             
             vcs.create_issue_comment(owner, repo, pr_number, response)
             return "SUCCESS"
-        elif result.success and not git.has_changes():
+        elif success and not has_changes:
             vcs.create_issue_comment(
                 owner, repo, pr_number,
                 "🤔 **Ada:** I analyzed your feedback but didn't find any code changes to make.\n\n"
