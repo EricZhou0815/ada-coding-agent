@@ -230,4 +230,4 @@ class GitManager:
         slug = re.sub(r"[^a-z0-9\s-]", "", slug)
         slug = re.sub(r"\s+", "-", slug.strip())
         slug = re.sub(r"-+", "-", slug)
-        return slug[:max_len].rstrip("-")
+        return slug[:max_len].strip("-")

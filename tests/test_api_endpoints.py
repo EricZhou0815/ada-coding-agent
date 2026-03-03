@@ -94,6 +94,47 @@ class TestStreamEndpoint:
         # Note: Don't use timeout with TestClient (deprecated)
         response = client.get("/api/v1/jobs/test-job-123/stream")
         assert response.status_code == 200
+    
+    @patch("api.main.redis.from_url")
+    def test_stream_endpoint_with_messages(self, mock_redis):
+        """Should stream messages from Redis pubsub."""
+        from unittest.mock import MagicMock
+        
+        # Mock Redis with actual messages
+        mock_pubsub = MagicMock()
+        mock_messages = [
+            {"type": "subscribe", "data": 1},
+            {"type": "message", "data": b'{"log": "test message"}'},
+            {"type": "message", "data": b'{"log": "another message"}'}
+        ]
+        mock_pubsub.listen.return_value = iter(mock_messages)
+        mock_client = MagicMock()
+        mock_client.pubsub.return_value = mock_pubsub
+        mock_redis.return_value = mock_client
+        
+        response = client.get("/api/v1/jobs/test-job-456/stream")
+        assert response.status_code == 200
+        
+        # Verify pubsub was subscribed and unsubscribed
+        mock_pubsub.subscribe.assert_called_once_with("logs:test-job-456")
+    
+    @patch("api.main.redis.from_url")
+    def test_stream_endpoint_cleanup_on_disconnect(self, mock_redis):
+        """Should unsubscribe from Redis when stream ends."""
+        from unittest.mock import MagicMock
+        
+        mock_pubsub = MagicMock()
+        mock_pubsub.listen.return_value = iter([])
+        mock_client = MagicMock()
+        mock_client.pubsub.return_value = mock_pubsub
+        mock_redis.return_value = mock_client
+        
+        response = client.get("/api/v1/jobs/cleanup-test/stream")
+        assert response.status_code == 200
+        
+        # Should have cleaned up pubsub connection
+        # This tests the finally block
+        mock_pubsub.close.assert_called()
 
 
 class TestAPIListJobs:

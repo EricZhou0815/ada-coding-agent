@@ -295,5 +295,354 @@ class TestExecuteCodingTaskHelper:
         assert has_changes is False  # No changes made
 
 
+class TestExecuteSDLCStoryTask:
+    """Test the execute_sdlc_story Celery task."""
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._update_job_status')
+    @patch('worker.tasks._append_job_log')
+    @patch('utils.logger.logger')
+    @patch('orchestrator.sdlc_orchestrator.SDLCOrchestrator')
+    @patch('config.Config.get_llm_client')
+    def test_execute_sdlc_story_success(
+        self, mock_get_llm, mock_orch_class, mock_logger, 
+        mock_append_log, mock_update_status, mock_rmtree, tmp_path
+    ):
+        """Should successfully execute SDLC story."""
+        from worker.tasks import execute_sdlc_story
+        
+        # Setup mocks
+        mock_llm = MagicMock()
+        mock_get_llm.return_value = mock_llm
+        
+        mock_orch = MagicMock()
+        mock_orch.run.return_value = True
+        mock_orch_class.return_value = mock_orch
+        
+        story = {
+            "title": "Test Story",
+            "description": "Test description",
+            "tasks": []
+        }
+        
+        with patch.dict(os.environ, {"ADA_TMP_DIR": str(tmp_path)}):
+            # Execute task directly - self is provided by bind=True, so pass remaining args
+            result = execute_sdlc_story(
+                job_id="test-job-123",
+                repo_url="https://github.com/test/repo.git",
+                story=story,
+                use_mock=False
+            )
+        
+        # Verify
+        assert result == "SUCCESS"
+        mock_update_status.assert_any_call("test-job-123", "RUNNING")
+        mock_update_status.assert_any_call("test-job-123", "SUCCESS")
+        mock_orch.run.assert_called_once()
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._update_job_status')
+    @patch('worker.tasks._append_job_log')
+    @patch('utils.logger.logger')
+    @patch('orchestrator.sdlc_orchestrator.SDLCOrchestrator')
+    @patch('config.Config.get_llm_client')
+    def test_execute_sdlc_story_failure(
+        self, mock_get_llm, mock_orch_class, mock_logger,
+        mock_append_log, mock_update_status, mock_rmtree, tmp_path
+    ):
+        """Should handle SDLC orchestrator failures."""
+        from worker.tasks import execute_sdlc_story
+        
+        mock_llm = MagicMock()
+        mock_get_llm.return_value = mock_llm
+        
+        mock_orch = MagicMock()
+        mock_orch.run.return_value = False  # Orchestrator failed
+        mock_orch_class.return_value = mock_orch
+        
+        story = {"title": "Test", "description": "", "tasks": []}
+        
+        with patch.dict(os.environ, {"ADA_TMP_DIR": str(tmp_path)}):
+            result = execute_sdlc_story(
+                job_id="test-job-456",
+                repo_url="https://github.com/test/repo.git",
+                story=story
+            )
+        
+        assert result == "FAILED"
+        mock_update_status.assert_any_call("test-job-456", "FAILED")
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._update_job_status')
+    @patch('worker.tasks._append_job_log')
+    @patch('utils.logger.logger')
+    @patch('config.Config.get_llm_client')
+    def test_execute_sdlc_story_exception(
+        self, mock_get_llm, mock_logger, mock_append_log, 
+        mock_update_status, mock_rmtree, tmp_path
+    ):
+        """Should handle exceptions gracefully."""
+        from worker.tasks import execute_sdlc_story
+        
+        # Simulate exception during execution
+        mock_get_llm.side_effect = Exception("LLM initialization failed")
+        
+        story = {"title": "Test", "description": "", "tasks": []}
+        
+        with patch.dict(os.environ, {"ADA_TMP_DIR": str(tmp_path)}):
+            result = execute_sdlc_story(
+                job_id="test-job-789",
+                repo_url="https://github.com/test/repo.git",
+                story=story
+            )
+        
+        assert result == "FAILED"
+        mock_update_status.assert_any_call("test-job-789", "FAILED")
+        mock_rmtree.assert_called()  # Should cleanup on failure
+
+
+class TestFixCIFailureTask:
+    """Test the fix_ci_failure Celery task."""
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._execute_coding_task')
+    @patch('worker.tasks._create_workspace')
+    @patch('worker.tasks.redis_client')
+    @patch('config.Config.get_vcs_client')
+    def test_fix_ci_failure_success(
+        self, mock_get_vcs, mock_redis, mock_create_workspace,
+        mock_execute_task, mock_rmtree, tmp_path
+    ):
+        """Should successfully fix CI failure."""
+        from worker.tasks import fix_ci_failure
+        
+        # Setup VCS client mock
+        mock_vcs = MagicMock()
+        mock_vcs.get_pull_requests.return_value = [
+            {"number": 123, "head": {"ref": "feature-branch"}}
+        ]
+        mock_vcs.get_pipeline_jobs.return_value = {
+            "jobs": [{"name": "test", "conclusion": "failure", "id": 456}]
+        }
+        mock_vcs.get_job_logs.return_value = "Test failed: assertion error"
+        mock_get_vcs.return_value = mock_vcs
+        
+        # Setup Redis mock - no previous retries
+        mock_redis.get.return_value = None
+        
+        # Setup workspace mock
+        mock_workspace = tmp_path / "fix_workspace"
+        mock_workspace.mkdir()
+        mock_create_workspace.return_value = mock_workspace
+        
+        # Setup execute_coding_task mock
+        mock_git = MagicMock()
+        mock_execute_task.return_value = (True, True, mock_git)
+        
+        # Execute
+        result = fix_ci_failure(
+            repo_url="https://github.com/test/repo.git",
+            owner="test",
+            repo="repo",
+            branch_name="feature-branch",
+            run_id=789
+        )
+        
+        # Verify
+        assert result == "SUCCESS"
+        mock_git.commit.assert_called_once()
+        mock_git.push.assert_called_once_with("feature-branch")
+        mock_vcs.create_issue_comment.assert_called_once()
+        assert "pushed a fix" in mock_vcs.create_issue_comment.call_args[0][3]
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._create_workspace')
+    @patch('worker.tasks.redis_client')
+    @patch('config.Config.get_vcs_client')
+    def test_fix_ci_failure_max_retries(
+        self, mock_get_vcs, mock_redis, mock_create_workspace, mock_rmtree
+    ):
+        """Should stop after max retries."""
+        from worker.tasks import fix_ci_failure, MAX_CI_FIX_RETRIES
+        
+        mock_vcs = MagicMock()
+        mock_vcs.get_pull_requests.return_value = [
+            {"number": 123, "head": {"ref": "feature-branch"}}
+        ]
+        mock_get_vcs.return_value = mock_vcs
+        
+        # Simulate max retries reached
+        mock_redis.get.return_value = str(MAX_CI_FIX_RETRIES)
+        
+        task_instance = MagicMock()
+        result = fix_ci_failure(
+            repo_url="https://github.com/test/repo.git",
+            owner="test",
+            repo="repo",
+            branch_name="feature-branch",
+            run_id=789
+        )
+        
+        assert result == "MAX_RETRIES_EXCEEDED"
+        mock_vcs.create_issue_comment.assert_called_once()
+        comment = mock_vcs.create_issue_comment.call_args[0][3]
+        assert "attempted to fix ci failures" in comment.lower() or "attempted to fix" in comment.lower()
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._execute_coding_task')
+    @patch('worker.tasks._create_workspace')
+    @patch('worker.tasks.redis_client')
+    @patch('config.Config.get_vcs_client')
+    def test_fix_ci_failure_no_changes(
+        self, mock_get_vcs, mock_redis, mock_create_workspace,
+        mock_execute_task, mock_rmtree, tmp_path
+    ):
+        """Should handle case when no fix is found."""
+        from worker.tasks import fix_ci_failure
+        
+        mock_vcs = MagicMock()
+        mock_vcs.get_pull_requests.return_value = [
+            {"number": 123, "head": {"ref": "feature-branch"}}
+        ]
+        mock_vcs.get_pipeline_jobs.return_value = {"jobs": []}
+        mock_get_vcs.return_value = mock_vcs
+        
+        mock_redis.get.return_value = "0"
+        
+        mock_workspace = tmp_path / "fix_workspace"
+        mock_workspace.mkdir()
+        mock_create_workspace.return_value = mock_workspace
+        
+        # Agent didn't produce changes
+        mock_execute_task.return_value = (True, False, None)
+        
+        task_instance = MagicMock()
+        result = fix_ci_failure(
+            repo_url="https://github.com/test/repo.git",
+            owner="test",
+            repo="repo",
+            branch_name="feature-branch",
+            run_id=789
+        )
+        
+        assert result == "NO_CHANGES"
+        comment = mock_vcs.create_issue_comment.call_args[0][3]
+        assert "couldn't determine a fix" in comment.lower()
+
+
+class TestApplyPRFeedbackTask:
+    """Test the apply_pr_feedback Celery task."""
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._execute_coding_task')
+    @patch('worker.tasks._create_workspace')
+    @patch('config.Config.get_vcs_client')
+    def test_apply_pr_feedback_success(
+        self, mock_get_vcs, mock_create_workspace,
+        mock_execute_task, mock_rmtree, tmp_path
+    ):
+        """Should successfully apply PR feedback."""
+        from worker.tasks import apply_pr_feedback
+        
+        # Setup VCS client mock
+        mock_vcs = MagicMock()
+        mock_vcs.get_pull_request.return_value = {
+            "number": 123,
+            "head": {"ref": "feature-branch"}
+        }
+        mock_get_vcs.return_value = mock_vcs
+        
+        # Setup workspace mock
+        mock_workspace = tmp_path / "feedback_workspace"
+        mock_workspace.mkdir()
+        mock_create_workspace.return_value = mock_workspace
+        
+        # Setup execute_coding_task mock
+        mock_git = MagicMock()
+        mock_execute_task.return_value = (True, True, mock_git)
+        
+        # Execute
+        result = apply_pr_feedback(
+            repo_url="https://github.com/test/repo.git",
+            owner="test",
+            repo="repo",
+            pr_number=123,
+            feedback="Please add error handling"
+        )
+        
+        # Verify
+        assert result == "SUCCESS"
+        mock_git.commit.assert_called_once()
+        mock_git.push.assert_called_once_with("feature-branch")
+        mock_vcs.create_issue_comment.assert_called_once()
+        comment = mock_vcs.create_issue_comment.call_args[0][3]
+        assert "applied your feedback" in comment.lower()
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._create_workspace')
+    @patch('config.Config.get_vcs_client')
+    def test_apply_pr_feedback_pr_fetch_error(
+        self, mock_get_vcs, mock_create_workspace, mock_rmtree
+    ):
+        """Should handle PR fetch errors."""
+        from worker.tasks import apply_pr_feedback
+        
+        mock_vcs = MagicMock()
+        mock_vcs.get_pull_request.side_effect = Exception("PR not found")
+        mock_get_vcs.return_value = mock_vcs
+        
+        task_instance = MagicMock()
+        result = apply_pr_feedback(
+            repo_url="https://github.com/test/repo.git",
+            owner="test",
+            repo="repo",
+            pr_number=999,
+            feedback="Test feedback"
+        )
+        
+        assert result == "ERROR"
+        mock_vcs.create_issue_comment.assert_called_once()
+        comment = mock_vcs.create_issue_comment.call_args[0][3]
+        assert "couldn't fetch" in comment.lower() or "error" in comment.lower()
+    
+    @patch('worker.tasks.shutil.rmtree')
+    @patch('worker.tasks._execute_coding_task')
+    @patch('worker.tasks._create_workspace')
+    @patch('config.Config.get_vcs_client')
+    def test_apply_pr_feedback_no_changes(
+        self, mock_get_vcs, mock_create_workspace,
+        mock_execute_task, mock_rmtree, tmp_path
+    ):
+        """Should handle case when no changes are made."""
+        from worker.tasks import apply_pr_feedback
+        
+        mock_vcs = MagicMock()
+        mock_vcs.get_pull_request.return_value = {
+            "number": 123,
+            "head": {"ref": "feature-branch"}
+        }
+        mock_get_vcs.return_value = mock_vcs
+        
+        mock_workspace = tmp_path / "feedback_workspace"
+        mock_workspace.mkdir()
+        mock_create_workspace.return_value = mock_workspace
+        
+        # Agent succeeded but made no changes
+        mock_execute_task.return_value = (True, False, None)
+        
+        task_instance = MagicMock()
+        result = apply_pr_feedback(
+            repo_url="https://github.com/test/repo.git",
+            owner="test",
+            repo="repo",
+            pr_number=123,
+            feedback="Unclear feedback"
+        )
+        
+        assert result == "NO_CHANGES"
+        comment = mock_vcs.create_issue_comment.call_args[0][3]
+        assert "didn't find any code changes" in comment.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
