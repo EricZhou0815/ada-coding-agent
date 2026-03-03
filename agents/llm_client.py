@@ -40,6 +40,7 @@ class LLMClient:
         model: str = None,
         provider: str = "groq",
         key_pool: Optional[APIKeyPool] = None,
+        max_context_tokens: int = None,
     ):
         """
         Initializes the LLMClient.
@@ -49,6 +50,8 @@ class LLMClient:
             model (str, optional): The specific model name to use. Defaults to provider generic defaults.
             provider (str, optional): Which platform to use ('groq' or 'openai'). Defaults to "groq".
             key_pool (APIKeyPool, optional): Pool of API keys for rotation. Takes precedence over api_key.
+            max_context_tokens (int, optional): Maximum tokens to keep in conversation history.
+                Defaults to 80000 (safe for GPT-4/Claude). Set via ADA_MAX_CONTEXT_TOKENS env var.
 
         Raises:
             ValueError: If the API key for the requested provider is missing.
@@ -58,6 +61,11 @@ class LLMClient:
         self.key_pool = key_pool
         self._current_api_key: Optional[str] = None
         self._client: Optional[OpenAI] = None
+        
+        # Token budget for context management (prevents OOM and context overflow)
+        if max_context_tokens is None:
+            max_context_tokens = int(os.getenv("ADA_MAX_CONTEXT_TOKENS", "80000"))
+        self.max_context_tokens = max_context_tokens
 
         if self.provider == "groq":
             if key_pool:
@@ -128,6 +136,7 @@ class LLMClient:
         automatically appends the incoming `prompt` as a `role: tool` message to fulfill the API requirements.
         
         Implements automatic key rotation on rate limits or quota exhaustion when using a key pool.
+        Also implements automatic context trimming to stay within token budgets.
 
         Args:
             prompt (str): The user's prompt or the serialized result from a previous tool call.
@@ -167,6 +176,9 @@ class LLMClient:
         api_tools = None
         if tools:
             api_tools = self._tools_to_tools_api_format(tools)
+
+        # Trim conversation to stay within token budget (zero-cost operation)
+        self._trim_to_budget()
 
         max_api_retries = 5  # Increased to allow for key rotation
         api_retry_count = 0
@@ -409,6 +421,49 @@ class LLMClient:
         Overrides the current conversation history.
         """
         self.conversation_history = history
+
+    def _estimate_tokens(self, messages: List[Dict]) -> int:
+        """
+        Estimates token count for a list of messages.
+        Uses conservative estimate: 1 character ≈ 0.25 tokens (4 chars per token).
+        This matches OpenAI's rough approximation and avoids dependency on tiktoken.
+        
+        Args:
+            messages: List of conversation messages
+            
+        Returns:
+            Estimated token count
+        """
+        return sum(len(json.dumps(msg)) for msg in messages) // 4
+
+    def _trim_to_budget(self):
+        """
+        Removes oldest messages to stay within max_context_tokens budget.
+        Uses simple truncation (zero cost, zero latency) instead of LLM-based summarization.
+        Always keeps system messages and at least 10 recent messages.
+        
+        Industry standard approach used by GitHub Copilot, Cursor, and Devin.
+        """
+        if not self.conversation_history:
+            return
+        
+        estimated_tokens = self._estimate_tokens(self.conversation_history)
+        
+        # Keep trimming oldest non-system messages until under budget
+        while estimated_tokens > self.max_context_tokens and len(self.conversation_history) > 10:
+            # Find and remove oldest non-system message
+            removed = False
+            for i, msg in enumerate(self.conversation_history):
+                if msg.get("role") != "system":
+                    self.conversation_history.pop(i)
+                    removed = True
+                    break
+            
+            if not removed:
+                # All messages are system messages, stop trimming
+                break
+            
+            estimated_tokens = self._estimate_tokens(self.conversation_history)
 
 
 # Backward-compatible alias
