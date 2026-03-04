@@ -147,11 +147,11 @@ def execute_stories(
 
 @app.get("/api/v1/jobs", response_model=List[JobSummary])
 def list_jobs(
-    db: SessionLocal = Depends(get_db),
-    api_key: str = Depends(verify_api_key)
+    db: SessionLocal = Depends(get_db)
 ):
     """
     Returns a history of all user story jobs.
+    Public endpoint - no authentication required.
     """
     jobs = db.query(StoryJob).order_by(StoryJob.created_at.desc()).all()
     return [
@@ -169,12 +169,12 @@ def get_job_status(
     job_id: str, 
     db: SessionLocal = Depends(get_db),
     limit: int = 100,
-    offset: int = 0,
-    api_key: str = Depends(verify_api_key)
+    offset: int = 0
 ):
     """
     Check the status and logs of a running story job. 
     Can be polled by the frontend.
+    Public endpoint - no authentication required.
     """
     from api.database import JobLog
     
@@ -219,11 +219,11 @@ def get_job_status(
 
 @app.get("/api/v1/jobs/{job_id}/stream")
 async def stream_job_logs(
-    job_id: str,
-    api_key: str = Depends(verify_api_key)
+    job_id: str
 ):
     """
     SSE endpoint to stream live logs from Redis Pub/Sub.
+    Public endpoint - no authentication required.
     """
     def redis_event_generator():
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")

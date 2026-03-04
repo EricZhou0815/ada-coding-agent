@@ -85,6 +85,8 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 pip install -r requirements.txt
 ```
 
+> **💡 Database**: Ada uses **SQLite by default** (auto-created, zero config). Only install PostgreSQL if you need multi-instance production deployments. See [Local Setup Guide](SETUP_WITHOUT_DOCKER.md) for details.
+
 ### 2. Configure environment variables
 
 ```bash
@@ -173,17 +175,117 @@ ECS_SECURITY_GROUPS=sg-0abcdef
 
 #### Advanced Configuration (Optional)
 ```bash
+# Redis (defaults to localhost if not set)
 REDIS_URL=redis://redis:6379/0
-DATABASE_URL=postgresql://ada_user:ada_password@db:5432/ada_db
+
+# Database (defaults to SQLite if not set)
+# Only set this if you want to use PostgreSQL:
+# DATABASE_URL=postgresql://ada_user:ada_password@db:5432/ada_db
+
+# Working directory for isolation backends
 ADA_TMP_DIR=/tmp/ada_runs
 ```
 
-### 3. Build & Run (Docker Compose)
+### 3. Build & Run
+
+#### Option A: Docker Compose (Recommended for Production)
 The easiest way to run the full Ada factory (API + Redis + Postgres + Workers):
 ```bash
 docker-compose up --build
 ```
 *Live docs: [http://localhost:8000/docs](http://localhost:8000/docs)*
+
+#### Option B: Local Setup (No Docker Required)
+Perfect for development or if Docker isn't available. Uses SQLite instead of PostgreSQL.
+
+**Prerequisites:**
+- Python 3.11+
+- Redis (portable download for Windows at `C:\Redis` - no installation needed, see step 3 below)
+- Node.js 20+ (for UI only)
+
+**Quick Start:**
+```bash
+# 1. Install Python dependencies
+python -m venv venv
+source venv/bin/activate  # On Windows: .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# 2. Initialize SQLite database
+python -c "from api.database import init_db; init_db()"
+
+# 3. Get Redis (Windows - portable, no install required)
+# Download: https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip
+# Extract to C:\Redis
+# Or use PowerShell to download automatically:
+# mkdir C:\Redis -Force; Invoke-WebRequest -Uri "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip" -OutFile "$env:TEMP\redis.zip"; Expand-Archive -Path "$env:TEMP\redis.zip" -DestinationPath "C:\Redis" -Force
+
+# 4. Start Redis (keep this terminal open)
+# Windows: C:\Redis\redis-server.exe
+# Linux/Mac: redis-server
+
+# 5. Run Ada components (3 separate terminals, all with venv activated):
+
+# Terminal 1: Redis (keep running)
+C:\Redis\redis-server.exe  # Windows
+# redis-server                # Linux/Mac
+
+# Terminal 2: API Server
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 3: Celery Worker
+celery -A worker.tasks worker --loglevel=info --pool=solo  # Windows requires --pool=solo
+
+# Terminal 4: UI (optional)
+cd ui && npm install && npm run dev
+```
+
+**What you get:**
+- ✅ **SQLite database** (auto-created as `ada_jobs.db` - zero config!)
+- ✅ **API server** at http://localhost:8000
+- ✅ **API docs** at http://localhost:8000/docs
+- ✅ **Console UI** at http://localhost:3000
+
+**Managing Redis:**
+```powershell
+# Check if Redis is running
+C:\Redis\redis-cli.exe ping  # Should return: PONG
+
+# Stop Redis
+Stop-Process -Name "redis-server" -Force  # Windows
+
+# Run Redis in background (no console window)
+Start-Process -FilePath "C:\Redis\redis-server.exe" -WorkingDirectory "C:\Redis"
+```
+
+📖 **[Complete Local Setup Guide](SETUP_WITHOUT_DOCKER.md)** - Detailed instructions for Windows, troubleshooting, and production tips.
+
+**One-Command Startup:**
+```bash
+# Bash (Git Bash/WSL/Linux/Mac)
+./start-local.sh
+
+# PowerShell (Windows)
+.\start-local.ps1
+
+# Stop all services
+./stop-local.sh  # Bash
+.\stop-local.ps1  # PowerShell
+```
+These scripts automatically start Redis, API, Worker, and UI in the correct order.
+
+#### Option C: Standalone Scripts (No API/Worker needed)
+For simple single-story execution without the full stack:
+
+```bash
+# Run against local repo
+python run_local.py stories/example_story.json ./my_repo
+
+# Run against remote repo (creates PR)
+python run_sdlc.py --repo https://github.com/owner/repo --stories stories/backlog.json
+
+# Interactive planning mode
+python run_demo.py
+```
 
 ### 4. Run the Console UI
 ```bash
@@ -219,17 +321,33 @@ command: ["celery", "-A", "worker.tasks", "worker", "--concurrency=4"]
 
 ## 🗄️ Database & Persistence
 
-Ada uses **PostgreSQL** to track job history and logs. When running via Docker, this is stored in a persistent volume.
+Ada supports two database backends:
 
-- **Storage**: Persistent Docker volume `postgres_data`.
-- **Wait-on-Start**: Workers and API automatically wait for the Postgres health check before booting.
+### SQLite (Default)
+- **Perfect for**: Development, single-instance deployments, getting started
+- **Setup**: Zero configuration - database file (`ada_jobs.db`) auto-created on first run
+- **Location**: Project root directory
+- **When to use**: Local development, demos, or small-scale production (single API instance)
+
+### PostgreSQL (Production)
+- **Perfect for**: Multi-instance deployments, high concurrency, horizontal scaling
+- **Setup**: Configure `DATABASE_URL` in `.env` (see Docker Compose setup)
+- **Storage**: Persistent Docker volume `postgres_data` or your PostgreSQL server
+- **When to use**: Production environments with multiple API/worker instances
+
+> **💡 Switching databases**: Simply set or remove `DATABASE_URL` in your `.env` file. If not set, Ada defaults to SQLite.
 
 ### Resetting History
-To clear all job history and reset the database:
+**SQLite:**
 ```bash
-docker-compose down -v
+rm ada_jobs.db
+python -c "from api.database import init_db; init_db()"
 ```
-*(The `-v` flag removes the named volume containing the database file.)*
+
+**PostgreSQL (Docker):**
+```bash
+docker-compose down -v  # -v removes the persistent volume
+```
 
 ---
 

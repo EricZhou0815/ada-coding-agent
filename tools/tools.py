@@ -46,7 +46,7 @@ class Tools:
         Returns:
             str: The target file's content.
         """
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
     def write_file(self, path: str, content: str):
@@ -57,7 +57,7 @@ class Tools:
             path (str): The path to the file to be written.
             content (str): The content to write to the file.
         """
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
 
     def delete_file(self, path: str):
@@ -113,7 +113,7 @@ class Tools:
         Raises:
             ValueError: If target_content is not found or matched multiple times.
         """
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             content = f.read()
         
         occurrences = content.count(target_content)
@@ -123,7 +123,7 @@ class Tools:
             raise ValueError("Edit failed: target_content matched multiple times. Please provide a more specific, unique block of text.")
 
         new_content = content.replace(target_content, replacement_content, 1)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(new_content)
         return "File updated successfully."
 

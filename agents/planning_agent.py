@@ -167,7 +167,7 @@ class PlanningAgent(BaseAgent):
                         if "story_id" not in story:
                             story["story_id"] = f"STORY-AUTO-{uuid.uuid4().hex[:8].upper()}"
                         
-                        logger.success(self.name, f"✓ Planning complete: {story['title']}")
+                        logger.success(f"✓ Planning complete: {story['title']}")
                         return AgentResult(success=True, output=story)
                     else:
                         logger.warning(self.name, "LLM signaled completion but story extraction failed")
@@ -186,7 +186,7 @@ class PlanningAgent(BaseAgent):
         logger.warning(self.name, f"Reached max iterations ({self.max_iterations})")
         return AgentResult(
             success=False,
-            output=f"Could not complete planning within {self.max_iterations} iterations"
+            output=f"Planning failed: reached max iterations ({self.max_iterations})"
         )
     
     def _parse_input(self, user_input: Union[str, Dict]) -> str:

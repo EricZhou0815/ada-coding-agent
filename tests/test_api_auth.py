@@ -51,8 +51,8 @@ class TestAPIAuthentication:
         """Request without X-Api-Key header should return 401."""
         response = client.post("/api/v1/execute", json=valid_story_payload)
         
-        assert response.status_code == 422  # FastAPI validation error for missing header
-        # Note: Header(...) makes it required, so FastAPI returns 422, not 401
+        assert response.status_code == 401  # Authentication error when API key is missing
+        assert "Invalid or missing API key" in response.json()["detail"]
     
     def test_execute_with_invalid_api_key_fails(self, client, valid_story_payload):
         """Request with invalid API key should return 401."""

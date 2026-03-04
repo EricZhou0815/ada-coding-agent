@@ -11,13 +11,13 @@ def tools():
 def test_read_file(tools):
     with patch("builtins.open", mock_open(read_data="hello world")) as mock_file:
         content = tools.read_file("test.txt")
-        mock_file.assert_called_once_with("test.txt", "r")
+        mock_file.assert_called_once_with("test.txt", "r", encoding="utf-8")
         assert content == "hello world"
 
 def test_write_file(tools):
     with patch("builtins.open", mock_open()) as mock_file:
         tools.write_file("test.txt", "new content")
-        mock_file.assert_called_once_with("test.txt", "w")
+        mock_file.assert_called_once_with("test.txt", "w", encoding="utf-8")
         mock_file().write.assert_called_once_with("new content")
 
 @patch("os.remove")
