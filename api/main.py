@@ -243,6 +243,290 @@ async def stream_job_logs(
 
     return StreamingResponse(redis_event_generator(), media_type="text/event-stream")
 
+
+# ── Planning Agent Endpoints ────────────────────────────────────────────────
+
+class PlanningBatchRequest(BaseModel):
+    repo_url: HttpUrl
+    inputs: List[Any]  # Can be strings or dicts
+    planning_mode: Optional[str] = "sequential"  # "sequential" or "parallel"
+    auto_execute: Optional[bool] = True
+
+class PlanningChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+
+class PlanningChatResponse(BaseModel):
+    session_id: str
+    batch_id: Optional[str]
+    response: str
+    state: str
+    story: Optional[Dict[str, Any]] = None
+    execution_job_id: Optional[str] = None
+    next_session: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any]
+    celery_task_id: Optional[str] = None  # Task ID for polling
+    message: Optional[str] = None  # Human-readable status message
+
+class PlanningBatchResponse(BaseModel):
+    batch_id: str
+    summary: Dict[str, int]
+    execution_jobs: List[str]
+    planning_sessions: List[Dict[str, Any]]
+    celery_task_id: Optional[str] = None  # Task ID for polling
+    status: Optional[str] = None  # PENDING, PROCESSING, COMPLETE, FAILED
+    message: Optional[str] = None  # Human-readable status message
+
+
+@app.post("/api/v1/planning/batch", response_model=PlanningBatchResponse)
+def create_planning_batch(
+    req: PlanningBatchRequest,
+    db: SessionLocal = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Submit a batch of user story requests for planning (async via Celery).
+    
+    Returns immediately with batch_id. Planning happens in background.
+    - Complete stories are queued to execution immediately
+    - Incomplete stories create planning sessions for clarification
+    - Sequential mode (default): activate sessions one at a time
+    - Parallel mode: activate all sessions simultaneously
+    
+    Poll `/api/v1/planning/batches/{batch_id}` for status updates.
+    
+    **Authentication Required:** Provide X-Api-Key header.
+    """
+    from api.database import PlanningBatch
+    from worker.tasks import process_planning_batch
+    import uuid
+    
+    # Create batch record immediately
+    batch = PlanningBatch(
+        id=f"batch-{uuid.uuid4().hex[:12]}",
+        repo_url=str(req.repo_url),
+        planning_mode=req.planning_mode,
+        auto_execute=1 if req.auto_execute else 0,
+        status="PENDING"
+    )
+    db.add(batch)
+    db.commit()
+    
+    # Submit to Celery
+    task = process_planning_batch.delay(
+        batch_id=batch.id,
+        repo_url=str(req.repo_url),
+        inputs=req.inputs,
+        planning_mode=req.planning_mode,
+        auto_execute=req.auto_execute
+    )
+    
+    # Update with Celery task ID
+    batch.celery_task_id = task.id
+    db.commit()
+    
+    return {
+        "batch_id": batch.id,
+        "summary": {
+            "total": len(req.inputs),
+            "needs_planning": len(req.inputs),  # Will be determined by worker
+            "already_queued": 0  # Will be determined by worker
+        },
+        "execution_jobs": [],
+        "planning_sessions": [],
+        "celery_task_id": task.id,
+        "status": "PENDING",
+        "message": f"Batch submitted for processing. Poll /api/v1/planning/batches/{batch.id} for status."
+    }
+
+
+@app.post("/api/v1/planning/chat", response_model=PlanningChatResponse)
+def planning_chat(
+    req: PlanningChatRequest,
+    db: SessionLocal = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Chat with a planning session to clarify requirements (async via Celery).
+    
+    - Omit session_id to start a new standalone session
+    - Include session_id to continue an existing conversation
+    - Submits to Celery and returns task_id for polling
+    
+    **For synchronous chat, use /api/v1/planning/chat/sync endpoint instead.**
+    
+    **Authentication Required:** Provide X-Api-Key header.
+    """
+    from api.database import PlanningSession
+    from worker.tasks import process_planning_message
+    from agents.planning_service import PlanningService
+    import uuid
+    
+    # New standalone session (not part of a batch)
+    if not req.session_id:
+        service = PlanningService(None)  # No LLM client needed for session creation
+        session = service._create_planning_session(
+            db=db,
+            batch_id=None,
+            user_input=req.message,
+            state="active"
+        )
+        db.commit()
+        
+        # Submit initial question generation to Celery
+        task = process_planning_message.delay(
+            session_id=session.id,
+            message=req.message
+        )
+        
+        return {
+            "session_id": session.id,
+            "batch_id": None,
+            "response": "Processing your request...",
+            "state": "active",
+            "metadata": {
+                "iteration": 0,
+                "questions_asked": 0,
+                "max_iterations": 10
+            },
+            "celery_task_id": task.id,
+            "message": f"Session created. Poll /api/v1/planning/sessions/{session.id} for the first question."
+        }
+    else:
+        # Continue existing session - submit to Celery
+        task = process_planning_message.delay(
+            session_id=req.session_id,
+            message=req.message
+        )
+        
+        session = db.query(PlanningSession).filter(PlanningSession.id == req.session_id).first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        return {
+            "session_id": session.id,
+            "batch_id": session.batch_id,
+            "response": "Processing your message...",
+            "state": session.state,
+            "metadata": {
+                "iteration": session.iteration,
+                "questions_asked": session.questions_asked,
+                "max_iterations": session.max_iterations
+            },
+            "celery_task_id": task.id,
+            "message": f"Message submitted. Poll /api/v1/planning/sessions/{session.id} for response."
+        }
+
+
+@app.get("/api/v1/planning/batches/{batch_id}")
+def get_planning_batch(
+    batch_id: str,
+    db: SessionLocal = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Get status of a planning batch and all its sessions.
+    
+    **Authentication Required:** Provide X-Api-Key header.
+    """
+    from agents.planning_service import PlanningService
+    from celery.result import AsyncResult
+    
+    service = PlanningService(None)  # No LLM client needed for queries
+    batch = service.get_batch(db, batch_id)
+    
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    # Get Celery task status if available
+    celery_status = None
+    if batch.celery_task_id:
+        task_result = AsyncResult(batch.celery_task_id)
+        celery_status = {
+            "task_id": batch.celery_task_id,
+            "state": task_result.state,
+            "ready": task_result.ready(),
+            "successful": task_result.successful() if task_result.ready() else None
+        }
+    
+    sessions_data = []
+    for session in batch.sessions:
+        session_data = {
+            "session_id": session.id,
+            "state": session.state,
+            "user_input": session.user_input,
+            "questions_asked": session.questions_asked,
+            "execution_job_id": session.execution_job_id
+        }
+        
+        if session.state == "complete" and session.story_result:
+            session_data["story"] = session.story_result
+        
+        sessions_data.append(session_data)
+    
+    completed = len([s for s in batch.sessions if s.state == "complete"])
+    active = len([s for s in batch.sessions if s.state == "active"])
+    pending = len([s for s in batch.sessions if s.state == "pending"])
+    
+    return {
+        "batch_id": batch.id,
+        "repo_url": batch.repo_url,
+        "planning_mode": batch.planning_mode,
+        "status": batch.status,
+        "celery_task": celery_status,
+        "error_message": batch.error_message,
+        "sessions": sessions_data,
+        "progress": {
+            "completed": completed,
+            "active": active,
+            "pending": pending,
+            "total": len(batch.sessions)
+        },
+        "created_at": str(batch.created_at),
+        "updated_at": str(batch.updated_at)
+    }
+
+
+@app.get("/api/v1/planning/sessions/{session_id}")
+def get_planning_session(
+    session_id: str,
+    db: SessionLocal = Depends(get_db),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Get detailed status of a planning session including conversation history.
+    
+    **Authentication Required:** Provide X-Api-Key header.
+    """
+    from agents.planning_service import PlanningService
+    
+    service = PlanningService(Config.get_llm_client())
+    session = service.get_session(db, session_id)
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return {
+        "session_id": session.id,
+        "batch_id": session.batch_id,
+        "state": session.state,
+        "user_input": session.user_input,
+        "current_question": session.current_question,
+        "conversation_history": session.conversation_history or [],
+        "story_result": session.story_result,
+        "execution_job_id": session.execution_job_id,
+        "metadata": {
+            "iteration": session.iteration,
+            "questions_asked": session.questions_asked,
+            "max_iterations": session.max_iterations,
+            "created_at": str(session.created_at),
+            "updated_at": str(session.updated_at),
+            "completed_at": str(session.completed_at) if session.completed_at else None
+        },
+        "error_message": session.error_message
+    }
+
+
 @app.get("/health")
 def health_check():
     """Simple healthcheck for ECS Target Groups"""

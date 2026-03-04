@@ -1,6 +1,7 @@
 openai  # used for both OpenAI and Groq (via OpenAI-compatible API)
 python-dotenv
 pytest
+pytest-asyncio
 pytest-cov
 coverage
 

@@ -105,6 +105,34 @@ class Config:
             )
 
     @classmethod
+    def get_async_llm_client(cls, force_mock: bool = False):
+        """
+        Instantiate and return the appropriate async LLM client based on configuration.
+        
+        Automatically uses APIKeyPool for multi-key rotation when multiple
+        keys are configured via GROQ_API_KEYS or OPENAI_API_KEYS.
+        """
+        if force_mock:
+            provider = "mock"
+        else:
+            provider = cls.get_llm_provider()
+
+        if provider == "mock":
+            from agents.mock_llm_client import MockLLMClient
+            return MockLLMClient()
+        else:
+            from agents.async_llm_client import AsyncLLMClient
+            
+            # Try to get a key pool for rotation
+            key_pool = cls.get_api_key_pool(provider)
+            
+            return AsyncLLMClient(
+                provider=provider, 
+                model=cls.get_llm_model(),
+                key_pool=key_pool
+            )
+
+    @classmethod
     def get_isolation_backend_type(cls) -> str:
         """
         Determine which isolation backend to use.

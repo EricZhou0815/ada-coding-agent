@@ -92,7 +92,7 @@ class SDLCOrchestrator:
     # Public interface
     # ─────────────────────────────────────────────────────────────────────────
 
-    def run(self, stories: List[Dict], workspace_dir: str, clean_workspace: bool = False) -> bool:
+    def run(self, user_inputs: List, workspace_dir: str, clean_workspace: bool = False) -> bool:
         """
         Executes the full SDLC for a list of User Stories.
 
@@ -106,7 +106,7 @@ class SDLCOrchestrator:
           3. Clean up workspace on success (or if clean_workspace is True)
 
         Args:
-            stories: List of user story dicts.
+            user_inputs: List of complete user story dicts.
             workspace_dir: Local directory to use as the Ada workspace.
             clean_workspace: If True, always clean up workspace (even on failure).
                              If False (default), clean on success and keep on failure
@@ -118,6 +118,12 @@ class SDLCOrchestrator:
         workspace = Path(workspace_dir).resolve()
         # Scope the repo directory by owner/repo to prevent collisions
         repo_path = workspace / f"{self.gh_owner}_{self.gh_repo}"
+
+        stories = user_inputs
+        
+        if not stories:
+            logger.error("SDLCOrchestrator", "No valid stories to process")
+            return False
 
         # ── Step 1: Clone ────────────────────────────────────────────────────
         logger.info("SDLCOrchestrator", f"📦 Bootstrapping workspace at: {workspace}")

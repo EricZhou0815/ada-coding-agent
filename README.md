@@ -6,6 +6,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ## 🚀 Features
 
+- **Planning Agent (NEW)**: Interactive requirement clarification before coding. Transform unclear requests into complete user stories through LLM-driven conversation focused on behavioral requirements. See [Planning Agent Guide](docs/PLANNING_AGENT.md).
 - **Senior Autonomous Logic**: Ada behaves as a senior engineer — exploring code, creating internal monologues, and following a strict Plan-before-Code discipline.
 - **Full SDLC Integration**: Provide a repository URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
 - **Multi-Platform VCS Support**: Modular VCS architecture with GitHub and GitLab implementations. Easily switch platforms via `VCS_PLATFORM` environment variable.

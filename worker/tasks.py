@@ -404,3 +404,148 @@ def apply_pr_feedback(self, repo_url: str, owner: str, repo: str, pr_number: int
     finally:
         if workspace_dir.exists():
             shutil.rmtree(workspace_dir, ignore_errors=True)
+
+
+# ── Planning Agent Tasks ────────────────────────────────────────────────────
+
+@celery_app.task(bind=True)
+def process_planning_batch(self, batch_id: str, repo_url: str, inputs: list, planning_mode: str, auto_execute: bool):
+    """
+    Process a planning batch asynchronously.
+    
+    Creates planning sessions for each input and processes them based on mode:
+    - Sequential: Activate and process one session at a time
+    - Parallel: Activate all sessions (processed when messages arrive)
+    
+    Args:
+        batch_id: Planning batch ID (already created in DB)
+        repo_url: Repository URL for execution
+        inputs: List of user requests
+        planning_mode: "sequential" or "parallel"
+        auto_execute: Whether to auto-queue completed stories
+    """
+    from api.database import SessionLocal, PlanningBatch
+    from agents.planning_service import PlanningService
+    from config import Config
+    import asyncio
+    
+    db = SessionLocal()
+    
+    try:
+        # Update batch status
+        batch = db.query(PlanningBatch).filter(PlanningBatch.id == batch_id).first()
+        if not batch:
+            raise ValueError(f"Batch {batch_id} not found")
+        
+        batch.status = "PROCESSING"
+        batch.celery_task_id = self.request.id
+        db.commit()
+        
+        # Initialize planning service
+        llm_client = Config.get_async_llm_client()
+        service = PlanningService(llm_client)
+        
+        # Process batch (this will create sessions and activate them)
+        # Use asyncio to run the async method
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            batch_result, execution_jobs = loop.run_until_complete(
+                service.create_batch(
+                    db=db,
+                    repo_url=repo_url,
+                    inputs=inputs,
+                    planning_mode=planning_mode,
+                    auto_execute=auto_execute
+                )
+            )
+        finally:
+            loop.close()
+        
+        # Update batch status to complete
+        batch.status = "COMPLETE"
+        db.commit()
+        
+        ada_logger.success("PlanningWorker", f"Batch {batch_id} processed: {len(batch.sessions)} sessions, {len(execution_jobs)} jobs")
+        
+        return {
+            "batch_id": batch_id,
+            "sessions_created": len(batch.sessions),
+            "execution_jobs": execution_jobs,
+            "status": "COMPLETE"
+        }
+        
+    except Exception as e:
+        ada_logger.error("PlanningWorker", f"Error processing batch {batch_id}: {e}")
+        
+        # Update batch status to failed
+        batch = db.query(PlanningBatch).filter(PlanningBatch.id == batch_id).first()
+        if batch:
+            batch.status = "FAILED"
+            batch.error_message = str(e)
+            db.commit()
+        
+        raise
+        
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True)
+def process_planning_message(self, session_id: str, message: str):
+    """
+    Process a single message in a planning session asynchronously.
+    
+    Args:
+        session_id: Planning session ID
+        message: User's message (answer to question)
+        
+    Returns:
+        Updated session data
+    """
+    from api.database import SessionLocal, PlanningSession
+    from agents.planning_service import PlanningService
+    from config import Config
+    import asyncio
+    
+    db = SessionLocal()
+    
+    try:
+        # Initialize planning service
+        llm_client = Config.get_async_llm_client()
+        service = PlanningService(llm_client)
+        
+        # Process message asynchronously
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            session = loop.run_until_complete(
+                service.process_message(
+                    db=db,
+                    session_id=session_id,
+                    message=message
+                )
+            )
+        finally:
+            loop.close()
+        
+        ada_logger.info("PlanningWorker", f"Session {session_id} message processed: state={session.state}")
+        
+        return {
+            "session_id": session.id,
+            "state": session.state,
+            "current_question": session.current_question,
+            "iteration": session.iteration,
+            "story_result": session.story_result,
+            "execution_job_id": session.execution_job_id
+        }
+        
+    except Exception as e:
+        ada_logger.error("PlanningWorker", f"Error processing message in session {session_id}: {e}")
+        raise
+        
+    finally:
+        db.close()
+
