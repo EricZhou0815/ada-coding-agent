@@ -13,7 +13,6 @@ Workflow per story:
 
 import os
 import shutil
-import uuid
 import uuid_utils
 from pathlib import Path
 from typing import List, Dict, Optional

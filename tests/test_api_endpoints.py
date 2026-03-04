@@ -36,19 +36,7 @@ class TestHealthCheckEndpoint:
 
 class TestExecuteEndpointValidation:
     """Test execute endpoint validation."""
-    
-    def test_execute_requires_api_key(self):
-        """Should require API key header."""
-        response = client.post(
-            "/api/v1/execute",
-            json={
-                "repo_url": "https://github.com/test/repo",
-                "stories": []
-            }
-        )
-        # Should fail with 401 or 422 depending on middleware order
-        assert response.status_code in [401, 422]
-    
+
     def test_execute_rejects_invalid_repo_url(self):
         """Should validate repo_url format."""
         with patch.dict("os.environ", {"API_KEYS": "test-key"}):

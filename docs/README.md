@@ -7,18 +7,16 @@ Comprehensive guides and documentation for the Ada Autonomous AI Software Engine
 ### Getting Started
 
 - **[Main README](../README.md)** - Project overview, quick start, and basic configuration
-- **[Webhook Setup Guide](WEBHOOK_SETUP.md)** - Configure GitHub/GitLab webhooks for automation
 
 ### Architecture & Design
 
 - **[Design Document](../design_doc/design.md)** - System architecture and design decisions
-- **[Architecture Review Report](review_report.md)** - Comprehensive review of architecture, design patterns, scalability, and security
 - **[AI Review Prompt Template](ai_review_prompt.md)** - Structured prompt for automated architecture reviews using AI
 
 ### Operation Guides
 
 - **[Worker Setup](../README_WORKER.md)** - Configure and scale background workers
-- **[Isolation Backends](../ISOLATION.md)** - Understanding sandbox, Docker, and ECS execution environments
+- **[Isolation Backends](../ISOLATION.md)** - Understanding sandbox, Docker execution environments
 
 ## 🔗 Quick Links by Use Case
 
@@ -26,11 +24,7 @@ Comprehensive guides and documentation for the Ada Autonomous AI Software Engine
 
 **Set up Ada for the first time**
 1. Read [Main README](../README.md) - Installation and configuration
-2. Configure webhooks: [Webhook Setup Guide](WEBHOOK_SETUP.md)
-3. Deploy workers: [Worker Setup](../README_WORKER.md)
-
-**Integrate with my VCS platform**
-- [Webhook Setup Guide](WEBHOOK_SETUP.md) - GitHub and GitLab integration
+2. Deploy workers: [Worker Setup](../README_WORKER.md)
 
 **Scale Ada for production**
 - [Worker Setup](../README_WORKER.md) - Horizontal scaling and concurrency
@@ -40,14 +34,10 @@ Comprehensive guides and documentation for the Ada Autonomous AI Software Engine
 - [Design Document](../design_doc/design.md) - Architecture deep dive
 - [Main README](../README.md#architecture) - System flow diagrams
 
-**Review project status and roadmap**
-- [Architecture Review Report](review_report.md) - Security audit, scalability analysis, and prioritized improvements
-
 **Run automated architecture reviews**
 - [AI Review Prompt Template](ai_review_prompt.md) - Generate automated reviews using AI assistants
 
 **Troubleshoot issues**
-- [Webhook Setup Guide](WEBHOOK_SETUP.md#troubleshooting) - Webhook debugging
 - Check application logs: `docker-compose logs -f api worker`
 
 ## 📖 Additional Resources
@@ -65,7 +55,6 @@ See example configuration files:
 ada-coding-agent/
 ├── docs/                    # 📖 You are here
 │   ├── README.md           # This documentation index
-│   └── WEBHOOK_SETUP.md    # VCS webhook configuration guide
 ├── design_doc/             # Architecture documentation
 ├── api/                    # FastAPI backend
 ├── agents/                 # AI agent implementations

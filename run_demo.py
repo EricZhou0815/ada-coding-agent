@@ -9,7 +9,6 @@ import os
 
 from agents.coding_agent import CodingAgent
 from agents.validation_agent import ValidationAgent
-from agents.mock_llm_client import MockLLMClient
 from tools.tools import Tools
 from orchestrator.task_executor import AtomicTaskExecutor
 

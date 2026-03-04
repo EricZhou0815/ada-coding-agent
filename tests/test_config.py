@@ -2,7 +2,6 @@ import os
 import pytest
 from unittest.mock import patch
 from config import Config
-from agents.mock_llm_client import MockLLMClient
 from agents.llm_client import LLMClient
 
 def test_get_llm_provider_explicit_env():
@@ -23,15 +22,6 @@ def test_get_llm_provider_fallback_openai():
 def test_get_llm_provider_fallback_mock():
     with patch.dict(os.environ, {}, clear=True):
         assert Config.get_llm_provider() == "mock"
-
-def test_get_llm_client_mock():
-    client = Config.get_llm_client(force_mock=True)
-    assert isinstance(client, MockLLMClient)
-
-@patch("config.Config.get_llm_provider", return_value="mock")
-def test_get_llm_client_provider_mock(mock_provider):
-    client = Config.get_llm_client()
-    assert isinstance(client, MockLLMClient)
 
 @patch("config.Config.get_llm_provider", return_value="openai")
 def test_get_llm_client_openai(mock_provider):

@@ -90,8 +90,7 @@ class Config:
             provider = cls.get_llm_provider()
 
         if provider == "mock":
-            from agents.mock_llm_client import MockLLMClient
-            return MockLLMClient()
+            return None
         else:
             from agents.llm_client import LLMClient
             
@@ -108,7 +107,7 @@ class Config:
     def get_isolation_backend_type(cls) -> str:
         """
         Determine which isolation backend to use.
-        Options: "sandbox" (default), "docker", "ecs"
+        Options: "sandbox" (default), "docker"
         """
         return os.getenv("ADA_ISOLATION_BACKEND", "sandbox").lower()
 
@@ -122,9 +121,6 @@ class Config:
         if backend_type == "docker":
             from isolation.docker_backend import DockerBackend
             return DockerBackend()
-        elif backend_type == "ecs":
-            from isolation.ecs_backend import ECSBackend
-            return ECSBackend()
         else:
             from isolation.sandbox import SandboxBackend
             return SandboxBackend(workspace_root=workspace_root)
@@ -157,10 +153,6 @@ class Config:
         
         platform = cls.get_vcs_platform()
         
-        # Import GitLab client only if needed (lazy loading)
-        if platform == "gitlab":
-            from tools.gitlab_client import GitLabClient  # noqa: F401
-        
         return VCSClientFactory.create(platform)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -175,69 +167,7 @@ class Config:
         """
         return os.getenv("ADA_BRANCH_PREFIX", "ada-ai/")
 
-    @classmethod
-    def is_ada_managed_branch(cls, branch_name: str) -> bool:
-        """
-        Check if a branch is managed by Ada based on naming convention.
-        
-        Args:
-            branch_name: The branch name to check
-            
-        Returns:
-            True if branch follows Ada's naming pattern
-        """
-        prefix = cls.get_ada_branch_prefix()
-        return branch_name.startswith(prefix)
 
-    @classmethod
-    def should_handle_all_prs(cls) -> bool:
-        """
-        Check if Ada should respond to @ada-ai on ALL PRs.
-        
-        Returns:
-            True if ADA_HANDLE_ALL_PRS=true, False otherwise (default)
-        """
-        return os.getenv("ADA_HANDLE_ALL_PRS", "false").lower() == "true"
-
-    @classmethod
-    def should_auto_fix_all_ci(cls) -> bool:
-        """
-        Check if Ada should auto-fix CI failures on ALL branches.
-        
-        Returns:
-            True if ADA_AUTO_FIX_CI_ALL=true, False otherwise (default)
-        """
-        return os.getenv("ADA_AUTO_FIX_CI_ALL", "false").lower() == "true"
-
-    @classmethod
-    def should_handle_pr_comment(cls, branch_name: str) -> bool:
-        """
-        Determine if Ada should respond to a @ada-ai comment on this PR.
-        
-        Args:
-            branch_name: The PR's head branch name
-            
-        Returns:
-            True if Ada should handle the comment
-        """
-        if cls.should_handle_all_prs():
-            return True
-        return cls.is_ada_managed_branch(branch_name)
-
-    @classmethod
-    def should_auto_fix_ci(cls, branch_name: str) -> bool:
-        """
-        Determine if Ada should auto-fix CI failures on this branch.
-        
-        Args:
-            branch_name: The branch name where CI failed
-            
-        Returns:
-            True if Ada should attempt to fix the CI failure
-        """
-        if cls.should_auto_fix_all_ci():
-            return True
-        return cls.is_ada_managed_branch(branch_name)
 
     @classmethod
     def get_app_version(cls) -> str:

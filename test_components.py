@@ -5,7 +5,6 @@ This tests the structure and imports.
 
 import sys
 from agents.coding_agent import CodingAgent
-from agents.validation_agent import ValidationAgent
 from tools.tools import Tools
 
 def test_imports():
@@ -23,16 +22,6 @@ def test_tools():
     # Test read_file
     content = tools.read_file("README.md")
     print(f"✓ Can read files - README.md is {len(content)} characters")
-
-def test_validation_agent():
-    """Test ValidationAgent."""
-    from agents.mock_llm_client import MockLLMClient
-    llm = MockLLMClient()
-    tools = Tools()
-    validator = ValidationAgent(llm, tools)
-    # ValidationAgent.run(story, repo_path, context)
-    result = validator.run({"title": "Test Story"}, ".", {"global_rules": ["Test criteria"]})
-    print(f"✓ Validation agent works - Result: {result}")
 
 def main():
     print("=" * 60)

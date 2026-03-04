@@ -162,12 +162,6 @@ class TestAPIKeyPool:
 class TestLLMClient:
     """Test LLM client instantiation."""
     
-    @patch('agents.mock_llm_client.MockLLMClient')
-    def test_force_mock_client(self, mock_client_class):
-        """Should return MockLLMClient when force_mock=True."""
-        Config.get_llm_client(force_mock=True)
-        mock_client_class.assert_called_once()
-    
     @patch('agents.llm_client.LLMClient')
     @patch('config.Config.get_api_key_pool')
     def test_real_client_with_key_pool(self, mock_get_pool, mock_client_class):
@@ -237,13 +231,7 @@ class TestIsolationBackend:
         with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "docker"}):
             Config.get_isolation_backend()
             mock_backend.assert_called_once()
-    
-    @patch('isolation.ecs_backend.ECSBackend')
-    def test_get_ecs_backend_instance(self, mock_backend):
-        """Should instantiate ECSBackend."""
-        with patch.dict(os.environ, {"ADA_ISOLATION_BACKEND": "ecs"}):
-            Config.get_isolation_backend()
-            mock_backend.assert_called_once()
+
     
     @patch('isolation.sandbox.SandboxBackend')
     def test_get_sandbox_backend_instance(self, mock_backend):
@@ -302,94 +290,6 @@ class TestAdaBranchManagement:
         """Should use custom branch prefix from env."""
         with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": "bot/"}):
             assert Config.get_ada_branch_prefix() == "bot/"
-    
-    def test_is_ada_managed_branch_true(self):
-        """Should recognize Ada-managed branches."""
-        with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": "ada-ai/"}):
-            assert Config.is_ada_managed_branch("ada-ai/feature-123") is True
-            assert Config.is_ada_managed_branch("ada-ai/fix-bug") is True
-    
-    def test_is_ada_managed_branch_false(self):
-        """Should not recognize non-Ada branches."""
-        with patch.dict(os.environ, {"ADA_BRANCH_PREFIX": "ada-ai/"}):
-            assert Config.is_ada_managed_branch("main") is False
-            assert Config.is_ada_managed_branch("feature/user-story") is False
-            assert Config.is_ada_managed_branch("ada-feature") is False
-    
-    def test_should_handle_all_prs_false_by_default(self):
-        """Should not handle all PRs by default."""
-        with patch.dict(os.environ, {"ADA_HANDLE_ALL_PRS": ""}):
-            assert Config.should_handle_all_prs() is False
-    
-    def test_should_handle_all_prs_true(self):
-        """Should handle all PRs when configured."""
-        with patch.dict(os.environ, {"ADA_HANDLE_ALL_PRS": "true"}):
-            assert Config.should_handle_all_prs() is True
-    
-    def test_should_handle_all_prs_case_insensitive(self):
-        """ADA_HANDLE_ALL_PRS should be case-insensitive."""
-        with patch.dict(os.environ, {"ADA_HANDLE_ALL_PRS": "TRUE"}):
-            assert Config.should_handle_all_prs() is True
-    
-    def test_should_auto_fix_all_ci_false_by_default(self):
-        """Should not auto-fix all CI by default."""
-        with patch.dict(os.environ, {"ADA_AUTO_FIX_CI_ALL": ""}):
-            assert Config.should_auto_fix_all_ci() is False
-    
-    def test_should_auto_fix_all_ci_true(self):
-        """Should auto-fix all CI when configured."""
-        with patch.dict(os.environ, {"ADA_AUTO_FIX_CI_ALL": "true"}):
-            assert Config.should_auto_fix_all_ci() is True
-    
-    def test_should_handle_pr_comment_ada_branch(self):
-        """Should handle PR comment on Ada-managed branch."""
-        with patch.dict(os.environ, {
-            "ADA_BRANCH_PREFIX": "ada-ai/",
-            "ADA_HANDLE_ALL_PRS": "false"
-        }):
-            assert Config.should_handle_pr_comment("ada-ai/story-123") is True
-    
-    def test_should_handle_pr_comment_non_ada_branch(self):
-        """Should not handle PR comment on non-Ada branch by default."""
-        with patch.dict(os.environ, {
-            "ADA_BRANCH_PREFIX": "ada-ai/",
-            "ADA_HANDLE_ALL_PRS": "false"
-        }):
-            assert Config.should_handle_pr_comment("feature/manual") is False
-    
-    def test_should_handle_pr_comment_all_prs_enabled(self):
-        """Should handle PR comment on any branch when configured."""
-        with patch.dict(os.environ, {
-            "ADA_BRANCH_PREFIX": "ada-ai/",
-            "ADA_HANDLE_ALL_PRS": "true"
-        }):
-            assert Config.should_handle_pr_comment("any-branch") is True
-            assert Config.should_handle_pr_comment("main") is True
-    
-    def test_should_auto_fix_ci_ada_branch(self):
-        """Should auto-fix CI on Ada-managed branch."""
-        with patch.dict(os.environ, {
-            "ADA_BRANCH_PREFIX": "ada-ai/",
-            "ADA_AUTO_FIX_CI_ALL": "false"
-        }):
-            assert Config.should_auto_fix_ci("ada-ai/bugfix") is True
-    
-    def test_should_auto_fix_ci_non_ada_branch(self):
-        """Should not auto-fix CI on non-Ada branch by default."""
-        with patch.dict(os.environ, {
-            "ADA_BRANCH_PREFIX": "ada-ai/",
-            "ADA_AUTO_FIX_CI_ALL": "false"
-        }):
-            assert Config.should_auto_fix_ci("develop") is False
-    
-    def test_should_auto_fix_ci_all_enabled(self):
-        """Should auto-fix CI on any branch when configured."""
-        with patch.dict(os.environ, {
-            "ADA_BRANCH_PREFIX": "ada-ai/",
-            "ADA_AUTO_FIX_CI_ALL": "true"
-        }):
-            assert Config.should_auto_fix_ci("any-branch") is True
-            assert Config.should_auto_fix_ci("hotfix/prod") is True
 
 
 class TestAppVersion:

@@ -10,10 +10,9 @@ import asyncio
 from fastapi.responses import StreamingResponse
 
 from api.database import SessionLocal, StoryJob, get_db
-from api.webhooks import vcs as vcs_webhooks
 from config import Config
 
-# In production, we drop tasks directly into Redis via Celery
+# In production, we drop tasks directly into via Celery
 from worker.tasks import execute_sdlc_story
 
 app = FastAPI(
@@ -97,7 +96,6 @@ async def verify_api_key(
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
-app.include_router(vcs_webhooks.router, prefix="/api/v1/webhooks")
 
 @app.post("/api/v1/execute", response_model=List[JobResponse])
 def execute_stories(

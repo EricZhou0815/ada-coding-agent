@@ -8,20 +8,14 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 - **Senior Autonomous Logic**: Ada behaves as a senior engineer — exploring code, creating internal monologues, and following a strict Plan-before-Code discipline.
 - **Full SDLC Integration**: Provide a repository URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
-- **Multi-Platform VCS Support**: Modular VCS architecture with GitHub and GitLab implementations. Easily switch platforms via `VCS_PLATFORM` environment variable.
+- **Multi-Platform VCS Support**: Modular VCS architecture with GitHub implementations. Easily switch platforms via `VCS_PLATFORM` environment variable.
 - **Pluggable Isolation (Prod-Ready)**: Support for multiple execution backends:
     - **Sandbox**: Lightweight local folder isolation.
     - **Docker**: Container-level isolation per story.
-    - **AWS ECS (Fargate)**: True hardware-level isolation for untrusted code execution.
 - **Production-Grade Persistence**: Moves from SQLite to **PostgreSQL** for reliable, concurrent data management in distributed environments.
 - **High Autonomy (80+ Tool Calls)**: Ada is equipped with a large tool-call budget, allowing for massive refactors and multi-file changes in one session.
 - **Parallel Backlog Execution**: Distribute multiple User Stories across a cluster of workers. Ada can process an entire backlog in parallel, horizontally scaling to meet your team's velocity.
 - **Template-Driven PRs**: Generates structured PRs using `.ada/pr_template.md`, including completed tasks and file diff summaries.
-- **VCS Webhook Support**: Modular webhook architecture supporting GitHub and GitLab for automated feedback loops.
-- **Closed-Loop Development**:
-    - **CI/CD Auto-Fix**: Ada listens to VCS Webhooks. If a CI pipeline fails, she automatically downloads log artifacts, reproduces the bug, and pushes a patch.
-    - **Human Feedback**: Comment on an Ada PR, and she will autonomously apply your requested changes and push the update.
-- **Real-time Engineering Audit**: Follow Ada's reasoning in the Console UI with live streaming of tool calls, outputs, and internal "monologues".
 - **LLM Support**: Built-in support for **Groq** (extremely fast) and **OpenAI**.
 - **API Key Rotation**: Automatic failover across multiple API keys on rate limits or quota exhaustion — essential for high-volume production workloads.
 - **API Authentication**: Secure `/api/v1/execute` endpoint with configurable API keys to prevent unauthorized job submissions and cost abuse.
@@ -32,12 +26,11 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ### System Flow (Distributed Architecture)
 ```
-┌──────────────────────────┐      ┌──────────────────────────┐
-│   Next.js Console UI     │      │   GitHub Webhooks        │
-│   (Interaction & Logs)   │      │   (CI Fails / Comments)  │
-└───────────┬──────────────┘      └───────────┬──────────────┘
-            │                                 │
-            ▼                                 ▼
+┌──────────────────────────┐  
+│   Structured user story  │     
+└───────────┬──────────────┘      
+            │                                 
+            ▼                                 
 ┌────────────────────────────────────────────────────────────┐
 │                  FastAPI Gateway (api/)                    │
 │    (Auth, Story Intake, Job Management, Log Streaming)     │
@@ -71,7 +64,6 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 1. **Bootstrap**: `SDLCOrchestrator` clones the repo and creates a feature branch.
 2. **Isolation**: Re-configurable backends (Sandbox, Docker, or ECS) ensure zero-side effects.
 3. **Reasoning**: `CodingAgent` (Ada) researches, plans, and edits code until the Story is complete.
-4. **Validation**: `ValidationAgent` ensures Acceptance Criteria and Global Rules are met.
 5. **Finalization**: `GitManager` commits changes, pushes to origin, and `GitHubClient` opens the PR.
 
 ---
@@ -110,7 +102,7 @@ OPENAI_API_KEY=sk_your_key_here
 > - **Quota exhaustion**: Rotates to next key with 1hr cooldown  
 > - **Invalid keys (401)**: Marks key as permanently failed, uses remaining keys
 
-#### VCS Platform (GitHub or GitLab)
+#### VCS Platform (GitHub)
 ```bash
 # Default: github
 VCS_PLATFORM=github
@@ -118,9 +110,6 @@ VCS_PLATFORM=github
 # GitHub token for PR creation
 GITHUB_TOKEN=ghp_your_pat_here
 
-# For GitLab (set VCS_PLATFORM=gitlab first):
-# GITLAB_TOKEN=glpat_your_token_here
-# GITLAB_URL=https://gitlab.com  # or your self-hosted instance
 ```
 
 #### API Authentication (Required for Production)
@@ -137,37 +126,10 @@ API_KEYS=ada-prod-key-abc123,ada-ui-key-xyz789
 > **🔒 Security**: Without `API_KEYS` configured, anyone with your API URL can submit unlimited jobs.  
 > **Dev Mode**: If `API_KEYS` is not set, authentication is disabled with a warning (local development only).
 
-#### Ada Management Scope (Control which PRs Ada handles)
-```bash
-# Branch prefix for Ada-managed branches (default: ada-ai/)
-# Ada creates branches like: ada-ai/STORY-123-feature-name
-ADA_BRANCH_PREFIX=ada-ai/
-
-# Allow Ada to respond to @ada-ai on ALL PRs (default: false)
-# If false, @ada-ai only works on Ada's own branches
-# If true, team members can use @ada-ai on human-created PRs
-ADA_HANDLE_ALL_PRS=false
-
-# Auto-fix CI failures on ALL branches (default: false)
-# If false, only auto-fixes CI on Ada's branches (recommended)
-ADA_AUTO_FIX_CI_ALL=false
-```
-
-> **🔒 Safe Defaults**: By default, Ada only manages branches/PRs she creates (prefix: `ada-ai/`).  
-> Set `ADA_HANDLE_ALL_PRS=true` to let your team use `@ada-ai` comments on any PR.
 
 #### Isolation Backend (Optional)
 ```bash
-ADA_ISOLATION_BACKEND=sandbox  # sandbox, docker, ecs
-```
-
-#### AWS ECS Configuration (Only if using ecs backend)
-```bash
-AWS_REGION=us-east-1
-ECS_CLUSTER=ada-cluster
-ECS_TASK_DEFINITION=ada-worker-task
-ECS_SUBNETS=subnet-12345,subnet-67890
-ECS_SECURITY_GROUPS=sg-0abcdef
+ADA_ISOLATION_BACKEND=sandbox  # sandbox, docker
 ```
 
 #### Advanced Configuration (Optional)
@@ -183,14 +145,6 @@ The easiest way to run the full Ada factory (API + Redis + Postgres + Workers):
 docker-compose up --build
 ```
 *Live docs: [http://localhost:8000/docs](http://localhost:8000/docs)*
-
-### 4. Run the Console UI
-```bash
-cd ui
-npm install
-npm run dev
-```
-*Live console: [http://localhost:3000](http://localhost:3000)*
 
 ---
 
@@ -246,6 +200,13 @@ curl -X POST "http://localhost:8000/api/v1/execute" \
          }'
 ```
 
+# Ada Async API & Workers
+
+To start up your scalable AI Team locally:
+1. `docker run -d -p 6379:6379 redis`
+2. `uvicorn api.main:app --reload`
+3. `celery -A worker.tasks worker --loglevel=info`
+
 > **Note**: The `X-Api-Key` header is required when `API_KEYS` is configured in your environment.
 
 ### 🖥️ CLI Mode
@@ -259,16 +220,6 @@ Run a single story against a local repo:
 python3 run_local.py stories/example_story.json ./my_repo
 ```
 
----
-
-## � Webhooks & Automation
-
-Ada integrates with your VCS platform via webhooks to enable closed-loop development:
-
-- **Auto-Fix CI Failures**: When pipelines fail, Ada analyzes logs and pushes fixes automatically
-- **PR Comment Processing**: Use `@ada-ai` in PR comments to request code changes
-- **Real-Time Feedback**: Ada responds to human feedback and iterates on PRs
-
 ### Quick Setup
 
 **GitHub:**
@@ -276,14 +227,6 @@ Ada integrates with your VCS platform via webhooks to enable closed-loop develop
 2. URL: `https://your-ada-instance.com/api/v1/webhooks/github`
 3. Secret: Your `GITHUB_WEBHOOK_SECRET` value
 4. Events: Pull requests, Issue comments, Workflow runs
-
-**GitLab:**
-1. Project → Settings → Webhooks
-2. URL: `https://your-ada-instance.com/api/v1/webhooks/gitlab`
-3. Secret: Your `GITLAB_WEBHOOK_SECRET` value
-4. Triggers: Merge request events, Comments, Pipeline events
-
-📖 **[Complete Webhook Setup Guide](docs/WEBHOOK_SETUP.md)** - Detailed instructions for both platforms, troubleshooting, security best practices, and advanced configuration.
 
 ---
 
@@ -296,11 +239,9 @@ ada/
 ├── api/
 │   ├── main.py                   # FastAPI Story intake
 │   ├── database.py               # PostgreSQL & SQLAlchemy setup
-│   └── webhooks/                 # VCS Webhook handlers (GitHub, etc)
 ├── agents/
 │   ├── base_agent.py             # Agent base class with history management
 │   ├── coding_agent.py           # Senior autonomous Coder (Plan + Code)
-│   ├── validation_agent.py       # Autonomous Auditor and QA
 │   └── llm_client.py             # Groq/OpenAI client wrappers
 ├── orchestrator/
 │   ├── sdlc_orchestrator.py      # Git lifecycle & PR management
@@ -311,11 +252,9 @@ ada/
 │   ├── git_manager.py            # High-level Git operations
 │   ├── vcs_client.py             # Abstract VCS interface & factory
 │   ├── github_client.py          # GitHub API implementation
-│   └── gitlab_client.py          # GitLab API implementation
 ├── isolation/
 │   ├── sandbox.py                # Local filesystem isolation
 │   ├── docker_backend.py         # Container-based isolation
-│   └── ecs_backend.py            # AWS ECS (Fargate) isolation
 ├── utils/
 │   └── logger.py                 # Multi-destination logging (UI, Redis, DB)
 └── docs/
