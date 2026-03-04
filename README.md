@@ -1,5 +1,13 @@
 # Ada - Autonomous AI Software Engineering Team
 
+**“From Ticket to PR — Fully Automated.”**
+
+*Automatically turn scoped backlog items into review-ready pull requests, freeing your engineers to focus on the work that really matters.*
+
+- **End-to-End Execution**: Scoped tickets are implemented, tested, and PRs are ready for review without manual coding.
+- **Reliable & Deterministic**: Each PR respects acceptance criteria, coding standards, and your repo’s architecture.
+- **Accelerate Delivery**: Reduce backlog, save engineering hours, and ship features faster — every sprint.
+
 Ada is a multi-agent AI system that integrates directly into the software development lifecycle. By treating the agent as a longitudinal autonomous engineer, Ada processes full User Stories end-to-end: exploring code, planning implementation, writing changes, and opening Pull Requests — all without human intervention.
 
 ---
