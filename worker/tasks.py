@@ -1,10 +1,20 @@
 import os
+import sys
 import json
 import shutil
 import logging
 from pathlib import Path
 from celery import Celery
 from typing import Optional
+
+# Ensure project root is in Python path for imports
+# Use multiple methods to ensure we get the right path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
+
+# Also add current working directory in case Celery was started from project root
+if os.getcwd() not in sys.path:
+    sys.path.insert(0, os.getcwd())
 
 # Load env variables since tasks run isolated
 from dotenv import load_dotenv
@@ -129,8 +139,6 @@ def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict, use_mock: 
     """
     Celery task that executes a specific story in complete workspace isolation.
     """
-    import sys
-    
     # We lazily import Ada internals here so Celery workers can spawn fast
     # and they import config from env perfectly
     from config import Config
@@ -163,7 +171,7 @@ def execute_sdlc_story(self, job_id: str, repo_url: str, story: dict, use_mock: 
             llm_client=llm_client,
             tools=planning_tools,
             repo_url=repo_url,
-            base_branch="main", # Should be configurable in future
+            base_branch="main",  # Auto-detects master/main from repository
             tasks_output_dir=tasks_output_dir,
             rule_providers=rule_providers
         )

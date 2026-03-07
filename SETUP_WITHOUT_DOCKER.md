@@ -235,10 +235,11 @@ API documentation: **http://localhost:8000/docs**
 ```powershell
 cd c:\Users\cnwez2\ezhou\projects\ada-coding-agent
 .\venv\Scripts\Activate.ps1
+$env:PYTHONPATH = (Get-Location).Path
 celery -A worker.tasks worker --loglevel=info --pool=solo
 ```
 
-> **Note**: Windows requires `--pool=solo` flag for Celery workers.
+> **Note**: Windows requires `--pool=solo` flag for Celery workers. Setting `PYTHONPATH` ensures imports work correctly.
 
 ### Terminal 3: Next.js UI (Optional)
 

@@ -12,11 +12,21 @@ Workflow per story:
 """
 
 import os
+import stat
 import shutil
 import uuid
 import uuid_utils
 from pathlib import Path
 from typing import List, Dict, Optional
+
+
+def _handle_remove_readonly(func, path, exc):
+    """Error handler for Windows readonly file issues."""
+    if func in (os.unlink, os.remove, os.rmdir):
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        func(path)
+    else:
+        raise
 
 from orchestrator.epic_orchestrator import EpicOrchestrator
 from orchestrator.rule_provider import RuleProvider
@@ -129,6 +139,13 @@ class SDLCOrchestrator:
         logger.info("SDLCOrchestrator", f"📦 Bootstrapping workspace at: {workspace}")
         self.git = GitManager.clone(self.repo_url, str(repo_path))
 
+        # Auto-detect default branch if using default "main"
+        if self.base_branch == "main":
+            detected_branch = self.git.get_default_branch()
+            if detected_branch != "main":
+                logger.info("SDLCOrchestrator", f"Auto-detected default branch: {detected_branch}")
+                self.base_branch = detected_branch
+
         # Pull latest on base branch before branching
         logger.info("SDLCOrchestrator", f"Pulling latest from {self.base_branch}...")
         try:
@@ -230,7 +247,7 @@ class SDLCOrchestrator:
         if should_clean:
             logger.info("SDLCOrchestrator", f"🧹 Cleaning up workspace: {workspace}")
             try:
-                shutil.rmtree(workspace)
+                shutil.rmtree(workspace, onexc=_handle_remove_readonly)
             except Exception as e:
                 logger.warning("SDLCOrchestrator", f"Failed to clean workspace: {e}")
         else:
@@ -279,6 +296,7 @@ class SDLCOrchestrator:
 
         # List changed files from git
         changed = self.git.changed_files() if self.git else []
+        print(f"Changed files: {changed}")
         changed_text = "\n".join(f"- `{f}`" for f in changed) if changed else "_No files tracked._"
 
         # Rules summary
@@ -317,7 +335,7 @@ class SDLCOrchestrator:
             return self.PR_TEMPLATE_PATH.read_text()
         # Safe fallback if template file is missing
         return (
-            "## 🤖 Ada – Automated PR\n\n"
+            "## Ada – Automated PR\n\n"
             "**Story:** {story_title}  \n"
             "**Story ID:** {story_id}\n\n"
             "### Acceptance Criteria\n{acceptance_criteria}\n\n"

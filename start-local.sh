@@ -96,6 +96,7 @@ fi
 echo ""
 echo -e "${CYAN}Starting Celery Worker...${NC}"
 mkdir -p logs
+export PYTHONPATH="$PROJECT_DIR:$PYTHONPATH"
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
     # Windows
     celery -A worker.tasks worker --loglevel=info --pool=solo > logs/worker.log 2>&1 &

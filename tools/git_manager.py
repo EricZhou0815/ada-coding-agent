@@ -100,6 +100,34 @@ class GitManager:
         """Checks out an existing branch."""
         self._run(["git", "checkout", branch_name], check=True)
 
+    def get_default_branch(self) -> str:
+        """
+        Detects the repository's default branch (e.g., 'main' or 'master').
+        
+        Returns:
+            The name of the default branch.
+        """
+        # Try to get symbolic ref from remote origin
+        try:
+            result = self._run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"])
+            if result.returncode == 0:
+                # Output format: refs/remotes/origin/main
+                branch = result.stdout.strip().split('/')[-1]
+                return branch
+        except:
+            pass
+        
+        # Fallback: check common branch names
+        for branch in ['main', 'master']:
+            check = self._run(["git", "show-ref", "--verify", f"refs/heads/{branch}"])
+            if check.returncode == 0:
+                logger.info("GitManager", f"Detected default branch: {branch}")
+                return branch
+        
+        # Last resort: use current branch
+        logger.warning("GitManager", "Could not detect default branch, using current branch")
+        return self.current_branch()
+
     # ─────────────────────────────────────────────────────────────────────────
     # Status and diff
     # ─────────────────────────────────────────────────────────────────────────

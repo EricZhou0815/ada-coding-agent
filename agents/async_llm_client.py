@@ -21,6 +21,11 @@ from agents.api_key_pool import (
 # Groq models available via OpenAI-compatible API
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+# DeepSeek models (OpenAI-compatible)
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+
 OPENAI_DEFAULT_MODEL = "gpt-4-turbo-preview"
 
 
@@ -44,7 +49,8 @@ class AsyncLLMClient:
         - Rate limit and quota exhaustion handling
 
     Providers:
-        - "groq"
+        - "groq" (default)
+        - "deepseek"
         - "openai"
     """
 
@@ -62,7 +68,7 @@ class AsyncLLMClient:
         Args:
             api_key (str, optional): An explicit API key. Defaults to fetching from environment.
             model (str, optional): The specific model name to use. Defaults to provider generic defaults.
-            provider (str, optional): Which platform to use ('groq' or 'openai'). Defaults to "groq".
+            provider (str, optional): Which platform to use ('groq', 'deepseek', or 'openai'). Defaults to "groq".
             key_pool (APIKeyPool, optional): Pool of API keys for rotation. Takes precedence over api_key.
             max_context_tokens (int, optional): Maximum tokens to keep in conversation history.
                 Defaults to 80000 (safe for GPT-4/Claude). Set via ADA_MAX_CONTEXT_TOKENS env var.
@@ -93,6 +99,18 @@ class AsyncLLMClient:
                 api_key=self._current_api_key,
                 base_url=GROQ_BASE_URL,
             )
+        elif self.provider == "deepseek":
+            if key_pool:
+                self._current_api_key = key_pool.get_key()
+            else:
+                self._current_api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+            if not self._current_api_key:
+                raise ValueError("DeepSeek API key not provided (set DEEPSEEK_API_KEY or use key_pool).")
+            self.model = model or DEEPSEEK_DEFAULT_MODEL
+            self._client = AsyncOpenAI(
+                api_key=self._current_api_key,
+                base_url=DEEPSEEK_BASE_URL,
+            )
         elif self.provider == "openai":
             if key_pool:
                 self._current_api_key = key_pool.get_key()
@@ -103,7 +121,7 @@ class AsyncLLMClient:
             self.model = model or OPENAI_DEFAULT_MODEL
             self._client = AsyncOpenAI(api_key=self._current_api_key)
         else:
-            raise ValueError(f"Unsupported provider: '{provider}'. Use 'groq' or 'openai'.")
+            raise ValueError(f"Unsupported provider: '{provider}'. Use 'groq', 'deepseek', or 'openai'.")
 
         # Keep backward-compatible alias
         self.api_key = self._current_api_key
@@ -132,7 +150,9 @@ class AsyncLLMClient:
             # Recreate client with new key
             if self.provider == "groq":
                 self._client = AsyncOpenAI(api_key=new_key, base_url=GROQ_BASE_URL)
-            else:
+            elif self.provider == "deepseek":
+                self._client = AsyncOpenAI(api_key=new_key, base_url=DEEPSEEK_BASE_URL)
+            else:  # openai
                 self._client = AsyncOpenAI(api_key=new_key)
             
             self.client = self._client

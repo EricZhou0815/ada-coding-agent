@@ -27,6 +27,19 @@ const LogLine: React.FC<{ log: LogEntry; isLast: boolean }> = ({ log, isLast }) 
     const isNow = log.timestamp === "now" || !log.timestamp
     const timeStr = isNow ? "Queue" : format(new Date(log.timestamp), "HH:mm:ss")
 
+    // Helper to safely render any value (convert objects to JSON strings)
+    const safeRender = (value: any): string => {
+        if (value === null || value === undefined) return ""
+        if (typeof value === "string") return value
+        if (typeof value === "number" || typeof value === "boolean") return String(value)
+        // Convert objects/arrays to JSON
+        try {
+            return JSON.stringify(value, null, 2)
+        } catch {
+            return String(value)
+        }
+    }
+
     // Determine Icon and Color based on Level and Prefix
     const getLevelData = () => {
         const level = log.level || 'info'
@@ -92,7 +105,7 @@ const LogLine: React.FC<{ log: LogEntry; isLast: boolean }> = ({ log, isLast }) 
                 <div className="flex-1 flex gap-2 overflow-hidden items-center">
                     <span className="text-amber-500/50 text-[10px] uppercase font-black tracking-widest bg-amber-500/5 px-1 rounded">CMD</span>
                     <span className="text-amber-300 font-bold truncate">{log.message}</span>
-                    <span className="text-slate-500 opacity-60 truncate font-normal">{log.metadata?.args}</span>
+                    <span className="text-slate-500 opacity-60 truncate font-normal">{safeRender(log.metadata?.args)}</span>
                 </div>
                 <span className="text-[10px] text-slate-600 shrink-0 font-mono">{timeStr}</span>
             </motion.div>
@@ -121,7 +134,7 @@ const LogLine: React.FC<{ log: LogEntry; isLast: boolean }> = ({ log, isLast }) 
                 </div>
                 {log.metadata?.result && (
                     <div className="bg-black/40 p-3 rounded border border-white/5 text-slate-400 text-xs overflow-x-auto whitespace-pre-wrap max-h-48 custom-scrollbar">
-                        {log.metadata.result}
+                        {safeRender(log.metadata.result)}
                     </div>
                 )}
             </motion.div>

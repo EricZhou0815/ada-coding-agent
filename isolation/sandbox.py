@@ -5,10 +5,24 @@ Provides file-system and execution isolation without Docker.
 
 import os
 import sys
+import stat
 import shutil
 from pathlib import Path
 from typing import Dict, List
 from isolation.backend import IsolationBackend
+
+
+def _handle_remove_readonly(func, path, exc):
+    """
+    Error handler for Windows readonly file issues.
+    Removes readonly attribute and retries deletion.
+    """
+    if func in (os.unlink, os.remove, os.rmdir):
+        # Clear the readonly bit and try again
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+        func(path)
+    else:
+        raise
 
 
 class SandboxBackend(IsolationBackend):
@@ -42,7 +56,7 @@ class SandboxBackend(IsolationBackend):
         # Create isolated repo directory
         isolated_repo = os.path.join(self.current_workspace, "repo")
         if os.path.exists(isolated_repo):
-            shutil.rmtree(isolated_repo)
+            shutil.rmtree(isolated_repo, onexc=_handle_remove_readonly)
         
         # Copy repo snapshot to isolated workspace
         shutil.copytree(repo_path, isolated_repo)
@@ -126,7 +140,7 @@ class SandboxBackend(IsolationBackend):
                 shutil.copy2(src, dst)
             elif os.path.isdir(src):
                 if os.path.exists(dst):
-                    shutil.rmtree(dst)
+                    shutil.rmtree(dst, onexc=_handle_remove_readonly)
                 shutil.copytree(src, dst)
         
         print("[Sandbox] Results copied successfully")
@@ -137,7 +151,7 @@ class SandboxBackend(IsolationBackend):
         """
         if self.current_workspace and os.path.exists(self.current_workspace):
             print(f"[Sandbox] Cleaning up workspace: {self.current_workspace}")
-            shutil.rmtree(self.current_workspace)
+            shutil.rmtree(self.current_workspace, onexc=_handle_remove_readonly)
             self.current_workspace = None
     
     def get_name(self) -> str:

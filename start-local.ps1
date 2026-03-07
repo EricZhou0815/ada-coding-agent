@@ -25,6 +25,11 @@ if (-not (Test-Path ".env")) {
 Write-Host "Activating virtual environment..." -ForegroundColor Cyan
 & .\.venv\Scripts\Activate.ps1
 
+# 2.5. Install/update dependencies
+Write-Host "Installing dependencies..." -ForegroundColor Cyan
+pip install -q -r requirements.txt
+Write-Host "Dependencies installed" -ForegroundColor Green
+
 # 3. Check if database is initialized
 if (-not (Test-Path "ada_jobs.db")) {
     Write-Host "Initializing SQLite database..." -ForegroundColor Cyan
@@ -67,7 +72,7 @@ if ($apiPort) {
 # 7. Start Celery Worker
 Write-Host ""
 Write-Host "Starting Celery Worker..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PROJECT_DIR'; .\.venv\Scripts\Activate.ps1; celery -A worker.tasks worker --loglevel=info --pool=solo" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PROJECT_DIR'; .\.venv\Scripts\Activate.ps1; `$env:PYTHONPATH='$PROJECT_DIR'; celery -A worker.tasks worker --loglevel=info --pool=solo" -WindowStyle Normal
 Write-Host "Celery Worker started in new window" -ForegroundColor Green
 
 # 8. Start UI (optional)

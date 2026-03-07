@@ -1,14 +1,14 @@
-## 🤖 Ada - Automated Pull Request
+## Ada - Automated Pull Request
 
 **Story:** {story_title} ({story_id})
 
-### 📋 Background
+### Background
 {story_description}
 
-### ✅ Completed Tasks
+### Completed Tasks
 {task_list}
 
-### 📄 Files Modified
+### Files Modified
 {changed_files}
 
 ---

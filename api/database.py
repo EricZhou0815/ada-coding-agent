@@ -57,7 +57,7 @@ class JobLog(Base):
     """
     __tablename__ = "job_logs"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(String, ForeignKey('story_jobs.id'), nullable=False, index=True)
     timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), index=True)
     level = Column(String(20), nullable=False)  # info, error, warning, thought, tool, success

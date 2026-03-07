@@ -23,7 +23,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
     - **CI/CD Auto-Fix**: Ada listens to VCS Webhooks. If a CI pipeline fails, she automatically downloads log artifacts, reproduces the bug, and pushes a patch.
     - **Human Feedback**: Comment on an Ada PR, and she will autonomously apply your requested changes and push the update.
 - **Real-time Engineering Audit**: Follow Ada's reasoning in the Console UI with live streaming of tool calls, outputs, and internal "monologues".
-- **LLM Support**: Built-in support for **Groq** (extremely fast) and **OpenAI**.
+- **LLM Support**: Built-in support for **Groq** (extremely fast), **DeepSeek** (affordable + powerful), and **OpenAI**.
 - **API Key Rotation**: Automatic failover across multiple API keys on rate limits or quota exhaustion — essential for high-volume production workloads.
 - **API Authentication**: Secure `/api/v1/execute` endpoint with configurable API keys to prevent unauthorized job submissions and cost abuse.
 
@@ -102,13 +102,18 @@ GROQ_API_KEY=gsk_your_key_here
 # Ada automatically rotates to the next key on rate limits or quota exhaustion
 GROQ_API_KEYS=gsk_key1,gsk_key2,gsk_key3
 
+# DeepSeek (affordable, powerful alternative)
+DEEPSEEK_API_KEY=sk_your_key_here
+# Or multiple keys:
+# DEEPSEEK_API_KEYS=sk_key1,sk_key2,sk_key3
+
 # OpenAI (optional fallback)
 OPENAI_API_KEY=sk_your_key_here
 # Or multiple keys:
 # OPENAI_API_KEYS=sk_key1,sk_key2,sk_key3
 ```
 
-> **💡 Multi-Key Rotation**: When using `GROQ_API_KEYS` or `OPENAI_API_KEYS` (comma-separated), Ada automatically handles:
+> **💡 Multi-Key Rotation**: When using `GROQ_API_KEYS`, `DEEPSEEK_API_KEYS`, or `OPENAI_API_KEYS` (comma-separated), Ada automatically handles:
 > - **Rate limits (429)**: Rotates to next key with 60s cooldown
 > - **Quota exhaustion**: Rotates to next key with 1hr cooldown  
 > - **Invalid keys (401)**: Marks key as permanently failed, uses remaining keys
@@ -233,6 +238,7 @@ C:\Redis\redis-server.exe  # Windows
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 3: Celery Worker
+export PYTHONPATH=$PWD  # Or: $env:PYTHONPATH = (Get-Location).Path on Windows
 celery -A worker.tasks worker --loglevel=info --pool=solo  # Windows requires --pool=solo
 
 # Terminal 4: UI (optional)
@@ -420,7 +426,7 @@ ada/
 │   ├── base_agent.py             # Agent base class with history management
 │   ├── coding_agent.py           # Senior autonomous Coder (Plan + Code)
 │   ├── validation_agent.py       # Autonomous Auditor and QA
-│   └── llm_client.py             # Groq/OpenAI client wrappers
+│   └── llm_client.py             # Groq/DeepSeek/OpenAI client wrappers
 ├── orchestrator/
 │   ├── sdlc_orchestrator.py      # Git lifecycle & PR management
 │   ├── epic_orchestrator.py      # Multi-story backlog execution

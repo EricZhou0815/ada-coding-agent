@@ -10,8 +10,9 @@ class Config:
         Priority:
         1. LLM_PROVIDER from environment
         2. "groq" if GROQ_API_KEY or GROQ_API_KEYS is available
-        3. "openai" if OPENAI_API_KEY or OPENAI_API_KEYS is available
-        4. "mock" fallback if no keys or set to mock
+        3. "deepseek" if DEEPSEEK_API_KEY or DEEPSEEK_API_KEYS is available
+        4. "openai" if OPENAI_API_KEY or OPENAI_API_KEYS is available
+        5. "mock" fallback if no keys or set to mock
         """
         provider = os.getenv("LLM_PROVIDER")
         if provider:
@@ -19,6 +20,8 @@ class Config:
 
         if os.getenv("GROQ_API_KEY") or os.getenv("GROQ_API_KEYS"):
             return "groq"
+        elif os.getenv("DEEPSEEK_API_KEY") or os.getenv("DEEPSEEK_API_KEYS"):
+            return "deepseek"
         elif os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEYS"):
             return "openai"
         return "mock"
@@ -38,10 +41,11 @@ class Config:
         
         Supports:
         - GROQ_API_KEYS / GROQ_API_KEY (comma-separated or single)
+        - DEEPSEEK_API_KEYS / DEEPSEEK_API_KEY (comma-separated or single)
         - OPENAI_API_KEYS / OPENAI_API_KEY (comma-separated or single)
         
         Args:
-            provider: The LLM provider ("groq" or "openai")
+            provider: The LLM provider ("groq", "deepseek", or "openai")
             
         Returns:
             APIKeyPool instance, or None if only single key is available.
@@ -54,6 +58,9 @@ class Config:
         if provider == "groq":
             multi_key_var = "GROQ_API_KEYS"
             single_key_var = "GROQ_API_KEY"
+        elif provider == "deepseek":
+            multi_key_var = "DEEPSEEK_API_KEYS"
+            single_key_var = "DEEPSEEK_API_KEY"
         elif provider == "openai":
             multi_key_var = "OPENAI_API_KEYS"
             single_key_var = "OPENAI_API_KEY"
