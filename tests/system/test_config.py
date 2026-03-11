@@ -2,8 +2,7 @@ import os
 import pytest
 from unittest.mock import patch
 from config import Config
-from agents.mock_llm_client import MockLLMClient
-from agents.llm_client import LLMClient
+from agents.llm import MockLLMClient, LLMClient
 
 def test_get_llm_provider_explicit_env():
     with patch.dict(os.environ, {"LLM_PROVIDER": "openai"}):

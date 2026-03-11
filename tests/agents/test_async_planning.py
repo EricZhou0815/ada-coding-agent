@@ -10,7 +10,7 @@ import asyncio
 import time
 from unittest.mock import Mock, AsyncMock, patch
 
-from agents.async_llm_client import AsyncLLMClient
+from agents.llm import AsyncLLMClient
 from agents.planning_service import PlanningService
 from api.database import PlanningBatch, PlanningSession
 
@@ -20,7 +20,7 @@ async def test_async_llm_client_nonblocking():
     """Test that AsyncLLMClient calls are non-blocking."""
     # Use mock API key for testing
     with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-        with patch('agents.async_llm_client.AsyncOpenAI') as mock_openai_class:
+        with patch('agents.llm.async_llm_client.AsyncOpenAI') as mock_openai_class:
             # Create mock client
             mock_client = Mock()
             mock_openai_class.return_value = mock_client

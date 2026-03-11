@@ -1,47 +1,23 @@
-"""
-Async LLM Client for Ada - Non-blocking LLM calls for high-scale deployments
-
-This async version allows FastAPI to handle thousands of concurrent planning sessions
-without blocking worker threads during LLM API calls.
-"""
-
 import os
 import json
-import asyncio
-from openai import AsyncOpenAI
+import time
 from typing import List, Dict, Any, Optional
 
-from agents.api_key_pool import (
+from openai import OpenAI
+from .api_key_pool import (
     APIKeyPool, 
     is_rate_limit_error, 
     is_quota_exhausted_error, 
     is_invalid_key_error
 )
-
-# Groq models available via OpenAI-compatible API
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
-
-# DeepSeek models (OpenAI-compatible)
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
-
-OPENAI_DEFAULT_MODEL = "gpt-4-turbo-preview"
+from .llm_strategies import LLMProviderFactory, LLMStrategy
 
 
-class AsyncLLMClient:
+class LLMClient:
     """
-    Async LLM client wrapper for Ada - enables non-blocking LLM calls.
-    
-    Key differences from sync LLMClient:
-    - Uses AsyncOpenAI for non-blocking HTTP requests
-    - Uses asyncio.sleep instead of time.sleep
-    - All methods are async (use with await)
-    
-    Benefits:
-    - Single FastAPI worker can handle 100+ concurrent planning sessions
-    - No thread blocking during LLM API calls (2-3s each)
-    - 10-50x better throughput than synchronous version
+    LLM client wrapper for Ada.
+    Supports Groq (default), DeepSeek, and OpenAI via the OpenAI-compatible client.
+    Supports function calling for tool execution.
     
     Features:
         - Multi-key support with automatic rotation on failures
@@ -63,7 +39,7 @@ class AsyncLLMClient:
         max_context_tokens: int = None,
     ):
         """
-        Initializes the Async LLM Client.
+        Initializes the LLMClient.
 
         Args:
             api_key (str, optional): An explicit API key. Defaults to fetching from environment.
@@ -80,54 +56,35 @@ class AsyncLLMClient:
         self.provider = provider.lower()
         self.key_pool = key_pool
         self._current_api_key: Optional[str] = None
-        self._client: Optional[AsyncOpenAI] = None
+        self._client: Optional[OpenAI] = None
         
-        # Token budget for context management
+        # Token budget for context management (prevents OOM and context overflow)
         if max_context_tokens is None:
             max_context_tokens = int(os.getenv("ADA_MAX_CONTEXT_TOKENS", "80000"))
         self.max_context_tokens = max_context_tokens
 
-        if self.provider == "groq":
-            if key_pool:
-                self._current_api_key = key_pool.get_key()
-            else:
-                self._current_api_key = api_key or os.getenv("GROQ_API_KEY")
-            if not self._current_api_key:
-                raise ValueError("Groq API key not provided (set GROQ_API_KEY or use key_pool).")
-            self.model = model or GROQ_DEFAULT_MODEL
-            self._client = AsyncOpenAI(
-                api_key=self._current_api_key,
-                base_url=GROQ_BASE_URL,
-            )
-        elif self.provider == "deepseek":
-            if key_pool:
-                self._current_api_key = key_pool.get_key()
-            else:
-                self._current_api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
-            if not self._current_api_key:
-                raise ValueError("DeepSeek API key not provided (set DEEPSEEK_API_KEY or use key_pool).")
-            self.model = model or DEEPSEEK_DEFAULT_MODEL
-            self._client = AsyncOpenAI(
-                api_key=self._current_api_key,
-                base_url=DEEPSEEK_BASE_URL,
-            )
-        elif self.provider == "openai":
-            if key_pool:
-                self._current_api_key = key_pool.get_key()
-            else:
-                self._current_api_key = api_key or os.getenv("OPENAI_API_KEY")
-            if not self._current_api_key:
-                raise ValueError("OpenAI API key not provided (set OPENAI_API_KEY or use key_pool).")
-            self.model = model or OPENAI_DEFAULT_MODEL
-            self._client = AsyncOpenAI(api_key=self._current_api_key)
+        # Strategy pattern initialization
+        self._strategy = LLMProviderFactory.get_strategy(self.provider)
+        
+        # Resolve API Key
+        if key_pool:
+            self._current_api_key = key_pool.get_key()
         else:
-            raise ValueError(f"Unsupported provider: '{provider}'. Use 'groq', 'deepseek', or 'openai'.")
+            self._current_api_key = self._strategy.get_api_key(api_key)
+        
+        if not self._current_api_key:
+            raise ValueError(f"{self._strategy.provider_name} API key not provided (set {self._strategy.env_key} or use key_pool).")
+            
+        self.model = model or self._strategy.default_model
+        
+        # Initialize client via strategy
+        self._client = self._strategy.create_client(self._current_api_key)
 
         # Keep backward-compatible alias
         self.api_key = self._current_api_key
         self.client = self._client
         self.conversation_history = []
-    
+
     def _rotate_key(self) -> bool:
         """
         Rotate to the next available API key.
@@ -141,34 +98,30 @@ class AsyncLLMClient:
         try:
             new_key = self.key_pool.get_key()
             if new_key == self._current_api_key:
+                # Same key returned, might be the only available one
                 # Try once more in case it's round-robin
                 new_key = self.key_pool.get_key()
             
             self._current_api_key = new_key
             self.api_key = new_key
             
-            # Recreate client with new key
-            if self.provider == "groq":
-                self._client = AsyncOpenAI(api_key=new_key, base_url=GROQ_BASE_URL)
-            elif self.provider == "deepseek":
-                self._client = AsyncOpenAI(api_key=new_key, base_url=DEEPSEEK_BASE_URL)
-            else:  # openai
-                self._client = AsyncOpenAI(api_key=new_key)
-            
+            # Recreate client using strategy
+            self._client = self._strategy.create_client(new_key)
             self.client = self._client
             return True
         except RuntimeError:
             # All keys exhausted
             return False
 
-    async def generate(self, prompt: str, tools: Any = None) -> Dict:
+    def generate(self, prompt: str, tools: Any = None) -> Dict:
         """
-        Generates a response from the LLM asynchronously (non-blocking).
+        Generates a response from the LLM, managing conversation history and optional tool calls.
+
+        If the most recent message in the chat history was an assistant tool call, this method 
+        automatically appends the incoming `prompt` as a `role: tool` message to fulfill the API requirements.
         
-        This is the KEY difference from sync LLMClient:
-        - Uses 'await' for API calls
-        - Doesn't block the thread while waiting for LLM response
-        - Allows FastAPI to handle other requests concurrently
+        Implements automatic key rotation on rate limits or quota exhaustion when using a key pool.
+        Also implements automatic context trimming to stay within token budgets.
 
         Args:
             prompt (str): The user's prompt or the serialized result from a previous tool call.
@@ -182,7 +135,9 @@ class AsyncLLMClient:
         
         if last_message and last_message.get("role") == "assistant" and last_message.get("tool_calls"):
             # The prompt is actually the result of the tool call
+            # We must pass it as a `role: "tool"` message.
             tool_call = last_message["tool_calls"][0]
+            # Handle both dictionary (serialized) and object (live) formats
             if isinstance(tool_call, dict):
                 tool_call_id = tool_call.get("id")
                 function_name = tool_call.get("function", {}).get("name")
@@ -207,17 +162,17 @@ class AsyncLLMClient:
         if tools:
             api_tools = self._tools_to_tools_api_format(tools)
 
-        # Trim conversation to stay within token budget
+        # Trim conversation to stay within token budget (zero-cost operation)
         self._trim_to_budget()
 
-        max_api_retries = 5
+        max_api_retries = 5  # Increased to allow for key rotation
         api_retry_count = 0
         last_exception = None
         
         while api_retry_count < max_api_retries:
             try:
-                # ✨ ASYNC API CALL - Non-blocking!
-                response = await self._client.chat.completions.create(
+                # Make API call (same interface for both Groq and OpenAI)
+                response = self._client.chat.completions.create(
                     model=self.model,
                     messages=self.conversation_history,
                     tools=api_tools if api_tools else None,
@@ -238,59 +193,66 @@ class AsyncLLMClient:
                 
                 # Classify the error and handle accordingly
                 if is_invalid_key_error(e):
+                    # Key is permanently bad
                     if self.key_pool:
                         self.key_pool.mark_invalid(self._current_api_key)
                         if self._rotate_key():
-                            continue
+                            continue  # Retry immediately with new key
                     raise ValueError(f"Invalid API key: {e}")
                 
                 elif is_quota_exhausted_error(e):
+                    # Quota exhausted - try rotating to another key
                     if self.key_pool:
                         self.key_pool.mark_quota_exhausted(self._current_api_key)
                         if self._rotate_key():
-                            continue
+                            continue  # Retry immediately with new key
+                    # No more keys available, propagate error
                     raise e
                 
                 elif is_rate_limit_error(e):
+                    # Rate limited - mark and try rotating
                     if self.key_pool:
                         self.key_pool.mark_rate_limited(self._current_api_key)
                         if self._rotate_key():
-                            continue
+                            continue  # Retry immediately with new key
                     
                     # No pool or no available keys - do exponential backoff
                     if api_retry_count >= max_api_retries:
                         raise e
-                    wait_time = min(2 ** api_retry_count, 30)
-                    # ✨ ASYNC SLEEP - Non-blocking!
-                    await asyncio.sleep(wait_time)
+                    wait_time = min(2 ** api_retry_count, 30)  # Cap at 30s
+                    time.sleep(wait_time)
                 
                 else:
                     # Unknown error - standard retry with backoff
                     if api_retry_count >= max_api_retries:
                         raise e
                     wait_time = 2 ** api_retry_count
-                    # ✨ ASYNC SLEEP - Non-blocking!
-                    await asyncio.sleep(wait_time)
+                    time.sleep(wait_time)
         
         if api_retry_count >= max_api_retries and last_exception:
             raise last_exception
 
+
         message = response.choices[0].message
 
-        # Extract tool calls
+        # Groq/OpenAI 'tools' API responses have `message.tool_calls`
         tool_calls = getattr(message, "tool_calls", None)
+        
+        # We'll extract the first tool call to match the old 'function_call' interface for Ada
         function_call = None
         if tool_calls and len(tool_calls) > 0:
             function_call = tool_calls[0].function
 
-        # Serialize tool calls for storage
+        # Add assistant response to history
         serializable_tool_calls = None
         if tool_calls:
             serializable_tool_calls = []
             for tc in tool_calls:
+                # Use model_dump if it's a Pydantic model (OpenAI V1+)
                 if hasattr(tc, "model_dump"):
                     serializable_tool_calls.append(tc.model_dump())
                 else:
+                    # Manual mapping for older SDKs or Groq
                     serializable_tool_calls.append({
                         "id": getattr(tc, "id", None),
                         "type": getattr(tc, "type", "function"),
@@ -300,7 +262,6 @@ class AsyncLLMClient:
                         }
                     })
 
-        # Add assistant response to history
         self.conversation_history.append({
             "role": "assistant",
             "content": message.content,
@@ -314,7 +275,15 @@ class AsyncLLMClient:
         }
 
     def _tools_to_tools_api_format(self, tools: Any) -> List[Dict]:
-        """Convert tools to OpenAI API format (same as sync version)."""
+        """
+        Converts the internal Ada toolset into the strict modern JSON schema expected by OpenAI's 'tools' API.
+
+        Args:
+            tools (Any): Instance of the active tool class (e.g. `Tools`).
+
+        Returns:
+            List[Dict]: A list of tool schemas mapping function names to descriptions and parameters.
+        """
         return [
             {
                 "type": "function",
@@ -363,7 +332,7 @@ class AsyncLLMClient:
                 "type": "function",
                 "function": {
                     "name": "edit_file",
-                    "description": "Replaces exactly one occurrence of `target_content` with `replacement_content` in the file.",
+                    "description": "Replaces exactly one occurrence of `target_content` with `replacement_content` in the file. Useful for editing segments of large files without rewriting everything.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -421,35 +390,53 @@ class AsyncLLMClient:
         ]
 
     def reset_conversation(self):
-        """Clears the conversation history stored in this client instance."""
+        """
+        Clears the conversation history stored in this client instance.
+        """
         self.conversation_history = []
 
     def get_conversation_history(self) -> List[Dict]:
-        """Returns the current conversation history."""
+        """
+        Returns the current conversation history.
+        """
         return self.conversation_history
 
     def set_conversation_history(self, history: List[Dict]):
-        """Overrides the current conversation history."""
+        """
+        Overrides the current conversation history.
+        """
         self.conversation_history = history
 
     def _estimate_tokens(self, messages: List[Dict]) -> int:
         """
         Estimates token count for a list of messages.
         Uses conservative estimate: 1 character ≈ 0.25 tokens (4 chars per token).
+        This matches OpenAI's rough approximation and avoids dependency on tiktoken.
+        
+        Args:
+            messages: List of conversation messages
+            
+        Returns:
+            Estimated token count
         """
         return sum(len(json.dumps(msg)) for msg in messages) // 4
 
     def _trim_to_budget(self):
         """
         Removes oldest messages to stay within max_context_tokens budget.
+        Uses simple truncation (zero cost, zero latency) instead of LLM-based summarization.
         Always keeps system messages and at least 10 recent messages.
+        
+        Industry standard approach used by GitHub Copilot, Cursor, and Devin.
         """
         if not self.conversation_history:
             return
         
         estimated_tokens = self._estimate_tokens(self.conversation_history)
         
+        # Keep trimming oldest non-system messages until under budget
         while estimated_tokens > self.max_context_tokens and len(self.conversation_history) > 10:
+            # Find and remove oldest non-system message
             removed = False
             for i, msg in enumerate(self.conversation_history):
                 if msg.get("role") != "system":
@@ -458,6 +445,11 @@ class AsyncLLMClient:
                     break
             
             if not removed:
+                # All messages are system messages, stop trimming
                 break
             
             estimated_tokens = self._estimate_tokens(self.conversation_history)
+
+
+# Backward-compatible alias
+OpenAIClient = LLMClient

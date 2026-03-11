@@ -15,6 +15,13 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 from api.main import app
 
+@pytest.fixture(autouse=True)
+def mock_redis():
+    """Mock Redis client for all tests in this module."""
+    with patch("api.webhooks.vcs.redis_client") as mock:
+        mock.exists.return_value = False
+        yield mock
+
 client = TestClient(app)
 
 

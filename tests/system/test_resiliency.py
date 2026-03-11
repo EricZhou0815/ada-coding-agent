@@ -3,13 +3,16 @@ import os
 import json
 from unittest.mock import Mock, patch
 from agents.coding_agent import CodingAgent
-from agents.llm_client import LLMClient
+from agents.llm import LLMClient
 from agents.base_agent import AgentResult
 
 @pytest.fixture
 def mock_llm():
     llm = Mock()
     llm.get_conversation_history.return_value = [{"role": "user", "content": "hi"}]
+    llm.set_conversation_history = Mock()
+    llm.reset_conversation = Mock()
+    llm.generate = Mock()
     return llm
 
 @pytest.fixture
@@ -21,7 +24,7 @@ def test_coding_agent_checkpointing(mock_llm, mock_tools, tmp_path):
     agent = CodingAgent(mock_llm, mock_tools)
     
     # Mock LLM to return a finish response immediately
-    mock_llm.generate.return_value = {"content": "I am done. finish", "function_call": None}
+    mock_llm.generate.return_value = {"content": "I am done. TASK_COMPLETE", "function_call": None}
     
     story = {"story_id": "RES-1", "title": "Test Story"}
     context = {"checkpoint_path": str(checkpoint_file)}
@@ -44,7 +47,7 @@ def test_coding_agent_resume(mock_llm, mock_tools, tmp_path):
         json.dump({"messages": previous_messages, "tool_call_count": 5}, f)
         
     agent = CodingAgent(mock_llm, mock_tools)
-    mock_llm.generate.return_value = {"content": "finish", "function_call": None}
+    mock_llm.generate.return_value = {"content": "TASK_COMPLETE", "function_call": None}
     
     story = {"story_id": "RES-1", "title": "Test Story"}
     context = {"checkpoint_path": str(checkpoint_file)}
@@ -64,7 +67,7 @@ def test_llm_client_retries(mock_sleep):
         Mock(choices=[Mock(message=Mock(content="Success", tool_calls=None))])
     ]
     
-    with patch("agents.llm_client.OpenAI", return_value=mock_client_instance):
+    with patch("agents.llm.llm_strategies.OpenAI", return_value=mock_client_instance):
         client = LLMClient(api_key="test", provider="openai")
         client.generate("hello")
         

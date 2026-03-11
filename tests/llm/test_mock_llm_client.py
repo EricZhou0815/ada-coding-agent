@@ -6,7 +6,7 @@ Tests for MockLLMClient used in testing without real API calls.
 
 import pytest
 import json
-from agents.mock_llm_client import MockLLMClient
+from agents.llm import MockLLMClient
 
 
 class TestMockLLMClientInit:

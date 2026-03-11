@@ -9,7 +9,7 @@ import time
 import os
 from unittest.mock import patch, Mock
 
-from agents.api_key_pool import (
+from agents.llm.api_key_pool import (
     APIKeyPool,
     APIKeyEntry,
     KeyStatus,
@@ -179,9 +179,9 @@ class TestErrorClassifiers:
 class TestLLMClientKeyRotation:
     """Integration tests for LLMClient with key rotation."""
     
-    @patch("agents.llm_client.OpenAI")
+    @patch("agents.llm.llm_strategies.OpenAI")
     def test_client_with_key_pool(self, mock_openai):
-        from agents.llm_client import LLMClient
+        from agents.llm import LLMClient
         
         pool = APIKeyPool(["key1", "key2", "key3"])
         client = LLMClient(provider="groq", key_pool=pool)
@@ -189,9 +189,9 @@ class TestLLMClientKeyRotation:
         assert client._current_api_key in ["key1", "key2", "key3"]
         assert client.key_pool is pool
     
-    @patch("agents.llm_client.OpenAI")
+    @patch("agents.llm.llm_strategies.OpenAI")
     def test_rotate_key(self, mock_openai):
-        from agents.llm_client import LLMClient
+        from agents.llm import LLMClient
         
         pool = APIKeyPool(["key1", "key2"])
         client = LLMClient(provider="groq", key_pool=pool)
@@ -203,9 +203,9 @@ class TestLLMClientKeyRotation:
         # Should have rotated to a different key (or same if only one available)
         assert client._current_api_key in ["key1", "key2"]
     
-    @patch("agents.llm_client.OpenAI")
+    @patch("agents.llm.llm_strategies.OpenAI")
     def test_rotate_key_no_pool(self, mock_openai):
-        from agents.llm_client import LLMClient
+        from agents.llm import LLMClient
         
         client = LLMClient(api_key="single_key", provider="groq")
         success = client._rotate_key()

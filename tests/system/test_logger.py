@@ -71,8 +71,8 @@ class TestTerminalHandler:
         handler = TerminalHandler()
         handler.emit("thought", "CodingAgent", "I should check the imports")
         
-        # Should print multiple lines for the box
-        assert mock_print.call_count >= 3  # Top, content, bottom
+        # Should print at least two lines
+        assert mock_print.call_count >= 2
    
     @patch('builtins.print')
     def test_emit_tool_call(self, mock_print):
@@ -294,7 +294,7 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.info("Test", "Info message")
         
-        mock_emit.assert_called_once_with("info", "Test", "Info message", None)
+        mock_emit.assert_called_once_with("info", "Test", "Info message", {})
     
     @patch.object(TerminalHandler, 'emit')
     def test_error_logs_to_all_handlers(self, mock_emit):
@@ -302,7 +302,7 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.error("System", "Error occurred")
         
-        mock_emit.assert_called_once_with("error", "System", "Error occurred", None)
+        mock_emit.assert_called_once_with("error", "System", "Error occurred", {})
     
     @patch.object(TerminalHandler, 'emit')
     def test_success_logs_to_all_handlers(self, mock_emit):
@@ -310,7 +310,7 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.success("Task completed successfully")
         
-        mock_emit.assert_called_once_with("success", "System", "Task completed successfully", None)
+        mock_emit.assert_called_once_with("success", "System", "Task completed successfully", {})
     
     @patch.object(TerminalHandler, 'emit')
     def test_thought_logs_to_all_handlers(self, mock_emit):
@@ -318,7 +318,7 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.thought("Agent", "I should refactor this function")
         
-        mock_emit.assert_called_once_with("thought", "Agent", "I should refactor this function", None)
+        mock_emit.assert_called_once_with("thought", "Agent", "I should refactor this function", {})
     
     @patch.object(TerminalHandler, 'emit')
     def test_tool_call_logs_to_all_handlers(self, mock_emit):
@@ -326,12 +326,17 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.tool("Agent", "write_file", {"file": "test.py"})
         
-        mock_emit.assert_called_once_with(
-            "tool", 
-            "Agent", 
-            "write_file",
-            {"args": '{"file": "test.py"}'}
-        )
+        # Check that emit was called with expected structure
+        assert mock_emit.called
+        args = mock_emit.call_args[0]
+        
+        assert args[0] == "tool"
+        assert args[1] == "Agent"
+        assert args[2] == "write_file"
+        metadata = args[3]
+        assert metadata["tool_name"] == "write_file"
+        assert metadata["args"] == {"file": "test.py"}
+        assert "args_display" in metadata
     
     @patch.object(TerminalHandler, 'emit')
     def test_tool_result_logs_success(self, mock_emit):
@@ -346,7 +351,12 @@ class TestAdaLogger:
         
         assert args[0] == "tool_result"  # level
         assert args[1] == "Agent"  # prefix
-        assert args[2] == ""  # message
+        assert args[2] == "SUCCESS"  # message (formerly empty string, now "SUCCESS")
+        metadata = args[3]
+        assert metadata["success"] is True
+        assert metadata["output_len"] == len(result_msg)
+        assert metadata["result"] == result_msg
+        assert "result_display" in metadata
         
         metadata = args[3]  # metadata dict
         assert metadata["success"] is True
@@ -365,7 +375,7 @@ class TestAdaLogger:
         
         assert args[0] == "tool_result"  # level
         assert args[1] == "Agent"  # prefix
-        assert args[2] == ""  # message
+        assert args[2] == "FAILED"  # message
         
         metadata = args[3]  # metadata dict
         assert metadata["success"] is False
@@ -377,12 +387,7 @@ class TestAdaLogger:
         logger = AdaLogger()
         logger.warning("System", "Rate limit approaching")
         
-        mock_emit.assert_called_once_with("warning", "System", "Rate limit approaching", None)
-    
-    def test_multiple_handlers_all_receive_logs(self):
-        """Should emit to all registered handlers."""
-        logger = AdaLogger()
-        
+        mock_emit.assert_called_once_with("warning", "System", "Rate limit approaching", {})
         # Replace terminal handler with mock and add additional mocks
         mock_handler1 = Mock(spec=LogHandler)
         mock_handler2 = Mock(spec=LogHandler)

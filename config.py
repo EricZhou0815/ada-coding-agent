@@ -50,7 +50,7 @@ class Config:
         Returns:
             APIKeyPool instance, or None if only single key is available.
         """
-        from agents.api_key_pool import APIKeyPool
+        from agents.llm import APIKeyPool
         
         provider = provider.lower()
         
@@ -97,10 +97,10 @@ class Config:
             provider = cls.get_llm_provider()
 
         if provider == "mock":
-            from agents.mock_llm_client import MockLLMClient
+            from agents.llm import MockLLMClient
             return MockLLMClient()
         else:
-            from agents.llm_client import LLMClient
+            from agents.llm import LLMClient
             
             # Try to get a key pool for rotation
             key_pool = cls.get_api_key_pool(provider)
@@ -125,10 +125,10 @@ class Config:
             provider = cls.get_llm_provider()
 
         if provider == "mock":
-            from agents.mock_llm_client import MockLLMClient
+            from agents.llm import MockLLMClient
             return MockLLMClient()
         else:
-            from agents.async_llm_client import AsyncLLMClient
+            from agents.llm import AsyncLLMClient
             
             # Try to get a key pool for rotation
             key_pool = cls.get_api_key_pool(provider)

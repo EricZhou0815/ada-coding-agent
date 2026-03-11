@@ -99,14 +99,16 @@ class TestWebhookIdempotency:
     
     @patch("api.webhooks.vcs.verify_github_signature", return_value=True)
     @patch("api.webhooks.vcs.redis_client")
-    @patch("api.webhooks.vcs.fix_ci_failure.delay")
+    @patch("api.webhooks.vcs.fix_ci_failure")
     @patch("api.webhooks.vcs.Config.get_vcs_client")
-    def test_prevents_duplicate_ci_fix_jobs(self, mock_vcs, mock_celery, mock_redis, mock_verify):
+    @patch("api.webhooks.vcs.Config.should_auto_fix_ci", return_value=True)
+    def test_prevents_duplicate_ci_fix_jobs(self, mock_should_fix, mock_vcs, mock_fix, mock_redis, mock_verify):
         """Should prevent duplicate CI fix jobs from webhook retries."""
-        # First delivery - should process
-        mock_redis.exists.return_value = False
+        # Setup mock - initially doesn't exist
+        mock_redis.exists.side_effect = [False, True]
         mock_redis.setex.return_value = True
-        
+
+        # First delivery - should process
         payload = {
             "action": "completed",
             "workflow_run": {
@@ -121,7 +123,7 @@ class TestWebhookIdempotency:
                 "name": "repo"
             }
         }
-        
+
         # First webhook
         response1 = client.post(
             WEBHOOK_URL,
@@ -131,14 +133,11 @@ class TestWebhookIdempotency:
                 "X-GitHub-Delivery": "unique-delivery-456"
             }
         )
-        
+
         assert response1.status_code == 200
-        assert mock_celery.called
-        first_call_count = mock_celery.call_count
-        
+        assert mock_fix.delay.called
+
         # Simulate GitHub retry with same delivery ID
-        mock_redis.exists.return_value = True  # Now exists
-        
         response2 = client.post(
             WEBHOOK_URL,
             json=payload,
@@ -147,11 +146,13 @@ class TestWebhookIdempotency:
                 "X-GitHub-Delivery": "unique-delivery-456"  # Same ID
             }
         )
-        
+
         assert response2.status_code == 200
-        
+        assert response2.json()["status"] == "ignored"
+        assert response2.json()["reason"] == "duplicate_delivery"
+
         # Celery task should NOT be called again
-        assert mock_celery.call_count == first_call_count
+        assert mock_fix.delay.call_count == 1
     
     @patch("api.webhooks.vcs.verify_github_signature", return_value=True)
     @patch("api.webhooks.vcs.redis_client")

@@ -43,6 +43,7 @@ class TestLLMProviderSelection:
         with patch.dict(os.environ, {
             "LLM_PROVIDER": "",
             "GROQ_API_KEY": "",
+            "DEEPSEEK_API_KEY": "",
             "OPENAI_API_KEY": "sk_test123"
         }, clear=False):
             assert Config.get_llm_provider() == "openai"
@@ -52,6 +53,7 @@ class TestLLMProviderSelection:
         with patch.dict(os.environ, {
             "LLM_PROVIDER": "",
             "GROQ_API_KEY": "",
+            "DEEPSEEK_API_KEY": "",
             "OPENAI_API_KEYS": "sk_1,sk_2",
             "OPENAI_API_KEY": ""
         }, clear=False):
@@ -63,6 +65,8 @@ class TestLLMProviderSelection:
             "LLM_PROVIDER": "",
             "GROQ_API_KEY": "",
             "GROQ_API_KEYS": "",
+            "DEEPSEEK_API_KEY": "",
+            "DEEPSEEK_API_KEYS": "",
             "OPENAI_API_KEY": "",
             "OPENAI_API_KEYS": ""
         }, clear=False):
@@ -95,7 +99,7 @@ class TestLLMModel:
 class TestAPIKeyPool:
     """Test API key pool creation for load balancing."""
     
-    @patch('agents.api_key_pool.APIKeyPool')
+    @patch('agents.llm.APIKeyPool')
     def test_groq_multi_key_pool(self, mock_pool_class):
         """Should create pool with multiple GROQ keys."""
         with patch.dict(os.environ, {
@@ -108,7 +112,7 @@ class TestAPIKeyPool:
             call_args = mock_pool_class.call_args[0][0]
             assert call_args == ["gsk_1", "gsk_2", "gsk_3"]
     
-    @patch('agents.api_key_pool.APIKeyPool')
+    @patch('agents.llm.APIKeyPool')
     def test_openai_multi_key_pool(self, mock_pool_class):
         """Should create pool with multiple OPENAI keys."""
         with patch.dict(os.environ, {
@@ -121,7 +125,7 @@ class TestAPIKeyPool:
             call_args = mock_pool_class.call_args[0][0]
             assert call_args == ["sk_1", "sk_2"]
     
-    @patch('agents.api_key_pool.APIKeyPool')
+    @patch('agents.llm.APIKeyPool')
     def test_single_key_wrapped_in_pool(self, mock_pool_class):
         """Should wrap single key in pool for consistent interface."""
         with patch.dict(os.environ, {
@@ -132,7 +136,7 @@ class TestAPIKeyPool:
             
             mock_pool_class.assert_called_once_with(["gsk_single"])
     
-    @patch('agents.api_key_pool.APIKeyPool')
+    @patch('agents.llm.APIKeyPool')
     def test_single_key_from_multi_var(self, mock_pool_class):
         """Should handle single key in multi-key variable."""
         with patch.dict(os.environ, {
@@ -162,13 +166,13 @@ class TestAPIKeyPool:
 class TestLLMClient:
     """Test LLM client instantiation."""
     
-    @patch('agents.mock_llm_client.MockLLMClient')
+    @patch('agents.llm.MockLLMClient')
     def test_force_mock_client(self, mock_client_class):
         """Should return MockLLMClient when force_mock=True."""
         Config.get_llm_client(force_mock=True)
         mock_client_class.assert_called_once()
     
-    @patch('agents.llm_client.LLMClient')
+    @patch('agents.llm.LLMClient')
     @patch('config.Config.get_api_key_pool')
     def test_real_client_with_key_pool(self, mock_get_pool, mock_client_class):
         """Should pass key pool to LLMClient."""
@@ -184,7 +188,7 @@ class TestLLMClient:
                 key_pool=mock_pool
             )
     
-    @patch('agents.llm_client.LLMClient')
+    @patch('agents.llm.LLMClient')
     @patch('config.Config.get_api_key_pool')
     def test_real_client_without_key_pool(self, mock_get_pool, mock_client_class):
         """Should work when no key pool is available."""

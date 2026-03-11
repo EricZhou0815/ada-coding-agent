@@ -11,6 +11,9 @@ class MockFunctionCall:
 def mock_llm():
     llm = Mock()
     llm.reset_conversation = Mock()
+    llm.conversation_history = []
+    llm.get_conversation_history = Mock(return_value=[])
+    llm.generate = Mock()
     return llm
 
 @pytest.fixture
@@ -53,7 +56,7 @@ def test_build_prompt(mock_llm, mock_tools):
         "description": "Story Desc",
         "acceptance_criteria": ["Finish X"]
     }
-    prompt = agent._build_prompt(story, "/repo", ["failed logs"], ["Rule 1"])
+    prompt = agent._build_task_prompt(story, "/repo", ["failed logs"], ["Rule 1"])
     assert "Story Title" in prompt
     assert "Story Desc" in prompt
     assert "/repo" in prompt
@@ -64,7 +67,7 @@ def test_build_prompt(mock_llm, mock_tools):
 def test_run_finishes_on_keyword(mock_llm, mock_tools):
     agent = CodingAgent(mock_llm, mock_tools)
     mock_llm.generate.return_value = {
-        "content": "I am finish",
+        "content": "I am finished. TASK_COMPLETE",
         "function_call": None
     }
     

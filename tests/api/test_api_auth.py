@@ -14,8 +14,9 @@ from api.main import app
 
 @pytest.fixture
 def client():
-    """FastAPI test client."""
-    return TestClient(app)
+    """FastAPI test client with mocked Redis."""
+    with patch("api.webhooks.vcs.redis_client", MagicMock()):
+        return TestClient(app)
 
 
 @pytest.fixture
@@ -139,19 +140,24 @@ class TestAPIAuthenticationWithoutKeys:
         # Reload app to pick up new environment
         from importlib import reload
         import api.main
-        reload(api.main)
-        client = TestClient(api.main.app)
         
-        mock_task.delay = MagicMock()
-        
-        # Request without API key should work in dev mode
-        response = client.post(
-            "/api/v1/execute",
-            json=valid_story_payload
-        )
-        
-        # Should succeed but log warning
-        assert response.status_code in [200, 422]  # May fail on validation or succeed
+        # Mock Redis AND Celery broker connection before creating TestClient
+        with patch("api.webhooks.vcs.redis_client", MagicMock()), \
+             patch("api.main.execute_sdlc_story") as mock_exec:
+            
+            # Setup the mocked task
+            mock_exec.delay = MagicMock()
+            
+            client = TestClient(api.main.app)
+            
+            # Request without API key should work in dev mode
+            response = client.post(
+                "/api/v1/execute",
+                json=valid_story_payload
+            )
+            
+            # Should succeed but log warning
+            assert response.status_code in [200, 422]# May fail on validation or succeed
 
 
 class TestEndpointProtection:
