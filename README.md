@@ -6,6 +6,7 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ## 🚀 Features
 
+- **Repository Intelligence Layer (Phase 4)**: Tree-sitter AST parsing builds a knowledge graph of every class, function, import, and dependency in your codebase. Before planning or coding, Ada retrieves task-specific context — relevant files, symbols, and dependency chains — so agents make precision edits instead of blind modifications.
 - **Deterministic Planning Pipeline (Phase 3)**: User stories are decomposed into structured `ImplementationPlan`s with atomic tasks, explicit dependencies, and a DAG-based task scheduler. Each task runs through an isolated CodingAgent → QualityGate verification loop with automatic retries.
 - **Planning Agent**: Interactive requirement clarification before coding. Transform unclear requests into complete user stories through LLM-driven conversation focused on behavioral requirements. See [Planning Agent Guide](docs/PLANNING_AGENT.md).
 - **Senior Autonomous Logic**: Ada behaves as a senior engineer — exploring code, creating internal monologues, and following a strict Plan-before-Code discipline.
@@ -62,15 +63,28 @@ Ada is a multi-agent AI system that integrates directly into the software develo
             │ [5] Plan & Execute│ [6] Stream Logs (Pub/Sub)
             ▼                   ▼
 ┌──────────────────────────────────────────────────────────┐
-│              Phase 3 Planning Pipeline                   │
+│              Planning & Intelligence Pipeline            │
 │                                                          │
-│  ┌─────────────┐    ┌─────────────┐    ┌──────────────┐ │
-│  │  Planner    │───▶│  TaskGraph  │───▶│  Scheduler   │ │
-│  │  Agent      │    │  (DAG)      │    │  (topo-sort) │ │
-│  └─────────────┘    └─────────────┘    └──────┬───────┘ │
-│                                               │         │
-│                         ┌─────────────────────┘         │
-│                         ▼                               │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │  Phase 4: Repository Intelligence Layer            │ │
+│  │  ┌──────────┐ ┌──────────┐ ┌─────────────────────┐ │ │
+│  │  │  Repo    │▶│  AST     │▶│  Knowledge Graph    │ │ │
+│  │  │  Scanner │ │  Parser  │ │  (nodes + edges)    │ │ │
+│  │  └──────────┘ └──────────┘ └────────┬────────────┘ │ │
+│  │                                     │              │ │
+│  │                            ┌────────▼────────────┐ │ │
+│  │                            │  Context Retriever  │ │ │
+│  │                            │  (task → top-k)     │ │ │
+│  │                            └────────┬────────────┘ │ │
+│  └─────────────────────────────────────┼──────────────┘ │
+│                                        │ context        │
+│  ┌─────────────┐    ┌─────────────┐    ▼ ┌───────────┐  │
+│  │  Planner    │───▶│  TaskGraph  │───▶│ Scheduler  │  │
+│  │  Agent      │    │  (DAG)      │    │ (topo-sort)│  │
+│  └─────────────┘    └─────────────┘    └─────┬──────┘  │
+│                                              │         │
+│                         ┌────────────────────┘         │
+│                         ▼                              │
 │  ┌─────────────────────────────────────────────────────┐│
 │  │  Per-Task Execution Loop (with retries)             ││
 │  │  ┌────────────┐  ┌────────────┐  ┌───────────────┐ ││
@@ -91,12 +105,14 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ### Execution Pipeline (The Story Lifecycle)
 1. **Bootstrap**: `SDLCOrchestrator` clones the repo and creates a feature branch.
-2. **Planning** *(Phase 3)*: `PlannerAgent` decomposes the story into an `ImplementationPlan` with atomic `Task` objects and explicit dependency edges.
-3. **Task Scheduling**: `TaskGraph` validates the DAG (cycle detection), and `TaskScheduler` dispatches tasks in topological order with per-task retries.
-4. **Isolation**: Re-configurable backends (Sandbox, Docker, or ECS) ensure zero-side effects per task.
-5. **Reasoning**: `CodingAgent` (Ada) researches, plans, and edits code for each task until complete.
-6. **Verification**: `QualityGate` runs deterministic lint/build/test commands; `ValidationAgent` ensures acceptance criteria are met.
-7. **Finalization**: `GitManager` commits changes, pushes to origin, and the VCS client opens the PR.
+2. **Intelligence** *(Phase 4)*: `RepoGraphBuilder` scans the repo, parses ASTs with Tree-sitter, and builds a knowledge graph of files, classes, functions, imports, and dependencies.
+3. **Planning** *(Phase 3)*: `PlannerAgent` receives the graph summary and decomposes the story into an `ImplementationPlan` with atomic `Task` objects and explicit dependency edges.
+4. **Task Scheduling**: `TaskGraph` validates the DAG (cycle detection), and `TaskScheduler` dispatches tasks in topological order with per-task retries.
+5. **Context Retrieval** *(Phase 4)*: `ContextRetriever` extracts keywords from each task, matches against the knowledge graph, traverses dependency edges, and returns the most relevant files and symbols.
+6. **Isolation**: Re-configurable backends (Sandbox, Docker, or ECS) ensure zero-side effects per task.
+7. **Reasoning**: `CodingAgent` (Ada) receives task-specific context and makes precision edits instead of blind modifications.
+8. **Verification**: `QualityGate` runs deterministic lint/build/test commands; `ValidationAgent` ensures acceptance criteria are met.
+9. **Finalization**: `GitManager` commits changes, pushes to origin, and the VCS client opens the PR.
 
 > **Legacy mode**: Set `use_planning=False` on `SDLCOrchestrator` to bypass Phase 3 planning and use the direct `EpicOrchestrator` pipeline.
 
@@ -464,6 +480,13 @@ ada/
 │   └── run_execution.py          # Isolated workspace per task, pipeline runner
 ├── verification/                 # Phase 3: Deterministic verification
 │   └── quality_gate.py           # Auto-detected lint/build/test pipeline
+├── intelligence/                 # Phase 4: Repository Intelligence Layer
+│   ├── repo_scanner.py           # Filesystem walk, language detection, filtering
+│   ├── ast_parser.py             # Tree-sitter AST parsing (Python/JS/TS/Go/Java)
+│   ├── symbol_extractor.py       # AST nodes → graph nodes (classes, functions)
+│   ├── dependency_analyzer.py    # Edge extraction (imports, contains, tests)
+│   ├── repo_graph_builder.py     # Full pipeline, JSON persistence, incremental updates
+│   └── context_retriever.py      # Task-aware keyword→graph→score→top-k retrieval
 ├── orchestrator/
 │   ├── sdlc_orchestrator.py      # Git lifecycle & PR management
 │   ├── epic_orchestrator.py      # Multi-story backlog execution (legacy)
