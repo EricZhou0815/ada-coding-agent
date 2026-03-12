@@ -6,7 +6,8 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ## 🚀 Features
 
-- **Planning Agent (NEW)**: Interactive requirement clarification before coding. Transform unclear requests into complete user stories through LLM-driven conversation focused on behavioral requirements. See [Planning Agent Guide](docs/PLANNING_AGENT.md).
+- **Deterministic Planning Pipeline (Phase 3)**: User stories are decomposed into structured `ImplementationPlan`s with atomic tasks, explicit dependencies, and a DAG-based task scheduler. Each task runs through an isolated CodingAgent → QualityGate verification loop with automatic retries.
+- **Planning Agent**: Interactive requirement clarification before coding. Transform unclear requests into complete user stories through LLM-driven conversation focused on behavioral requirements. See [Planning Agent Guide](docs/PLANNING_AGENT.md).
 - **Senior Autonomous Logic**: Ada behaves as a senior engineer — exploring code, creating internal monologues, and following a strict Plan-before-Code discipline.
 - **Full SDLC Integration**: Provide a repository URL and a backlog. Ada clones, branches, codes, commits, and opens PRs automatically.
 - **Multi-Platform VCS Support**: Modular VCS architecture with GitHub and GitLab implementations. Easily switch platforms via `VCS_PLATFORM` environment variable.
@@ -55,14 +56,34 @@ Ada is a multi-agent AI system that integrates directly into the software develo
             ▼                                 │
 ┌─────────────────────────────────────────────┴──────────────┐
 │              Autonomous Workers (worker/)                  │
-│    (Horizontal Scaling • One Task per ECS/Docker Sandbox)  │
+│    (Horizontal Scaling • One Story per Worker)             │
 └───────────┬───────────────────┬────────────────────────────┘
             │                   │
-            │ [5] Reason        │ [6] Stream Logs (Pub/Sub)
+            │ [5] Plan & Execute│ [6] Stream Logs (Pub/Sub)
             ▼                   ▼
+┌──────────────────────────────────────────────────────────┐
+│              Phase 3 Planning Pipeline                   │
+│                                                          │
+│  ┌─────────────┐    ┌─────────────┐    ┌──────────────┐ │
+│  │  Planner    │───▶│  TaskGraph  │───▶│  Scheduler   │ │
+│  │  Agent      │    │  (DAG)      │    │  (topo-sort) │ │
+│  └─────────────┘    └─────────────┘    └──────┬───────┘ │
+│                                               │         │
+│                         ┌─────────────────────┘         │
+│                         ▼                               │
+│  ┌─────────────────────────────────────────────────────┐│
+│  │  Per-Task Execution Loop (with retries)             ││
+│  │  ┌────────────┐  ┌────────────┐  ┌───────────────┐ ││
+│  │  │ Isolation  │─▶│  Coding    │─▶│  Quality Gate │ ││
+│  │  │ (Sandbox)  │  │  Agent     │  │  (lint/test)  │ ││
+│  │  └────────────┘  └────────────┘  └───────────────┘ ││
+│  └─────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────┘
+            │
+            ▼
 ┌──────────────────────┐    ┌──────────────────────┐
-│ Isolation Backend    │    │   Redis (logs:id)    │
-│ (Sandbox / ECS)      │    │   (SSE to Browser)   │
+│ Results copied back  │    │   Redis (logs:id)    │
+│ to feature branch    │    │   (SSE to Browser)   │
 └──────────────────────┘    └──────────────────────┘
 ```
 
@@ -70,10 +91,14 @@ Ada is a multi-agent AI system that integrates directly into the software develo
 
 ### Execution Pipeline (The Story Lifecycle)
 1. **Bootstrap**: `SDLCOrchestrator` clones the repo and creates a feature branch.
-2. **Isolation**: Re-configurable backends (Sandbox, Docker, or ECS) ensure zero-side effects.
-3. **Reasoning**: `CodingAgent` (Ada) researches, plans, and edits code until the Story is complete.
-4. **Validation**: `ValidationAgent` ensures Acceptance Criteria and Global Rules are met.
-5. **Finalization**: `GitManager` commits changes, pushes to origin, and `GitHubClient` opens the PR.
+2. **Planning** *(Phase 3)*: `PlannerAgent` decomposes the story into an `ImplementationPlan` with atomic `Task` objects and explicit dependency edges.
+3. **Task Scheduling**: `TaskGraph` validates the DAG (cycle detection), and `TaskScheduler` dispatches tasks in topological order with per-task retries.
+4. **Isolation**: Re-configurable backends (Sandbox, Docker, or ECS) ensure zero-side effects per task.
+5. **Reasoning**: `CodingAgent` (Ada) researches, plans, and edits code for each task until complete.
+6. **Verification**: `QualityGate` runs deterministic lint/build/test commands; `ValidationAgent` ensures acceptance criteria are met.
+7. **Finalization**: `GitManager` commits changes, pushes to origin, and the VCS client opens the PR.
+
+> **Legacy mode**: Set `use_planning=False` on `SDLCOrchestrator` to bypass Phase 3 planning and use the direct `EpicOrchestrator` pipeline.
 
 ---
 
@@ -425,11 +450,23 @@ ada/
 ├── agents/
 │   ├── base_agent.py             # Agent base class with history management
 │   ├── coding_agent.py           # Senior autonomous Coder (Plan + Code)
+│   ├── planning_agent.py         # Interactive requirement clarification
 │   ├── validation_agent.py       # Autonomous Auditor and QA
-│   └── llm_client.py             # Groq/DeepSeek/OpenAI client wrappers
+│   └── llm/                      # LLM client wrappers & key rotation
+├── planning/                     # Phase 3: Deterministic Planning
+│   ├── models.py                 # ImplementationPlan, Task, TaskGraph, RunExecution
+│   ├── planner_agent.py          # Story → ImplementationPlan with atomic tasks
+│   ├── task_graph.py             # DAG builder, cycle detection, topological sort
+│   └── task_scheduler.py         # Dependency-aware task dispatch with retries
+├── orchestration/                # Phase 3: Plan-driven orchestration
+│   └── plan_orchestrator.py      # Plan → TaskGraph → Schedule → Execute → Verify
+├── execution/                    # Phase 3: Task execution engine
+│   └── run_execution.py          # Isolated workspace per task, pipeline runner
+├── verification/                 # Phase 3: Deterministic verification
+│   └── quality_gate.py           # Auto-detected lint/build/test pipeline
 ├── orchestrator/
 │   ├── sdlc_orchestrator.py      # Git lifecycle & PR management
-│   ├── epic_orchestrator.py      # Multi-story backlog execution
+│   ├── epic_orchestrator.py      # Multi-story backlog execution (legacy)
 │   └── task_executor.py          # Pipeline loop & agent chaining
 ├── tools/
 │   ├── tools.py                  # Core filesystem & command tools

@@ -34,6 +34,7 @@ from tools.git_manager import GitManager
 from tools.vcs_client import VCSClient
 from config import Config
 from utils.logger import logger
+from orchestration.plan_orchestrator import PlanOrchestrator
 
 
 class SDLCOrchestrator:
@@ -53,7 +54,8 @@ class SDLCOrchestrator:
         tasks_output_dir: str = "tasks",
         rule_providers: Optional[List[RuleProvider]] = None,
         vcs_client: Optional[VCSClient] = None,
-        github_token: Optional[str] = None  # Deprecated, for backward compatibility
+        github_token: Optional[str] = None,  # Deprecated, for backward compatibility
+        use_planning: bool = False,
     ):
         """
         Args:
@@ -65,6 +67,7 @@ class SDLCOrchestrator:
             rule_providers: Quality gate providers for the ValidationAgent.
             vcs_client: Pre-configured VCS client. If None, uses Config.get_vcs_client().
             github_token: Deprecated. Use vcs_client parameter or env vars instead.
+            use_planning: If True, use Phase 3 deterministic planning pipeline.
         """
         self.repo_url = repo_url
         self.base_branch = base_branch
@@ -88,6 +91,10 @@ class SDLCOrchestrator:
         self.gh_owner = self.owner
         self.gh_repo = self.repo
         self.github = self.vcs  # Legacy alias
+
+        self.use_planning = use_planning
+        self.llm_client = llm_client
+        self.tools = tools
 
         self.epic = EpicOrchestrator(
             llm_client=llm_client,
@@ -181,7 +188,18 @@ class SDLCOrchestrator:
                 continue
 
             # ── Step 2b: Execute story tasks ─────────────────────────────────
-            story_success = self.epic.execute_stories([story], str(repo_path))
+            if self.use_planning:
+                # Phase 3: Deterministic planning pipeline
+                plan_orch = PlanOrchestrator(
+                    llm_client=self.llm_client,
+                    tools=self.tools,
+                    workspace_root=str(repo_path.parent / ".plan_workspace"),
+                    rule_providers=self.rule_providers,
+                )
+                story_success = plan_orch.execute_story(story, str(repo_path))
+            else:
+                # Legacy: Direct execution via EpicOrchestrator
+                story_success = self.epic.execute_stories([story], str(repo_path))
 
             if not story_success:
                 logger.warning(
