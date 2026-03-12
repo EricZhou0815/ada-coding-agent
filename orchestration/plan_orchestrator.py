@@ -19,6 +19,8 @@ from planning.planner_agent import PlannerAgent
 from planning.task_graph import TaskGraph, CycleError
 from planning.task_scheduler import TaskScheduler
 from execution.run_execution import ExecutionEngine
+from intelligence.repo_graph_builder import RepoGraphBuilder, RepoGraph
+from intelligence.context_retriever import ContextRetriever
 from utils.logger import logger
 
 
@@ -54,6 +56,9 @@ class PlanOrchestrator:
         self.rule_providers = rule_providers or []
         self.max_task_retries = max_task_retries
         self.max_pipeline_retries = max_pipeline_retries
+        self.graph_builder = RepoGraphBuilder()
+        self.context_retriever = ContextRetriever()
+        self._repo_graph: Optional[RepoGraph] = None
 
     def execute_story(self, story: Dict, repo_path: str) -> bool:
         """
@@ -69,12 +74,26 @@ class PlanOrchestrator:
         story_id = story.get("story_id", "STORY-?")
         story_title = story.get("title", "Unknown")
 
-        logger.info("PlanOrchestrator", f"Starting Phase 3 pipeline for [{story_id}]: {story_title}")
+        logger.info("PlanOrchestrator", f"Starting pipeline for [{story_id}]: {story_title}")
+
+        # ── Step 0: Build/Update Repository Intelligence Graph ───────────
+        logger.info("PlanOrchestrator", "Step 0: Building repository intelligence graph...")
+        graph_path = os.path.join(self.workspace_root, "repo_graph.json")
+        if self._repo_graph:
+            self._repo_graph = self.graph_builder.incremental_update(repo_path, self._repo_graph)
+        else:
+            existing = self.graph_builder.load(graph_path)
+            if existing:
+                self._repo_graph = self.graph_builder.incremental_update(repo_path, existing)
+            else:
+                self._repo_graph = self.graph_builder.build(repo_path)
+        self.graph_builder.save(self._repo_graph, graph_path)
 
         # ── Step 1: Generate Implementation Plan ─────────────────────────
         logger.info("PlanOrchestrator", "Step 1: Generating implementation plan...")
         planner = PlannerAgent(self.llm_client, self.tools)
-        plan = planner.plan(story, repo_path)
+        planning_context = {"repo_summary": self._repo_graph.summary()}
+        plan = planner.plan(story, repo_path, context=planning_context)
 
         if not plan or not plan.tasks:
             logger.error("PlanOrchestrator", "Planning failed — no tasks generated.")
@@ -105,6 +124,8 @@ class PlanOrchestrator:
             workspace_root=os.path.join(self.workspace_root, f"plan_{plan.plan_id[:8]}"),
             rule_providers=self.rule_providers,
             max_pipeline_retries=self.max_pipeline_retries,
+            context_retriever=self.context_retriever,
+            repo_graph=self._repo_graph,
         )
 
         scheduler = TaskScheduler(graph, max_retries=self.max_task_retries)

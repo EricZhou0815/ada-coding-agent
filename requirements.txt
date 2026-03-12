@@ -14,3 +14,6 @@ psycopg2-binary
 boto3
 alembic
 uuid-utils
+
+# Repository Intelligence Layer (Phase 4)
+tree-sitter-languages

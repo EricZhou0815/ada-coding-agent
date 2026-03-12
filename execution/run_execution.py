@@ -13,6 +13,10 @@ from typing import Dict, Optional, List
 from planning.models import Task, RunExecution, RunStatus, VerificationResult
 from utils.logger import logger
 
+# Late imports to avoid circular deps
+_ContextRetriever = None
+_RepoGraph = None
+
 
 def _handle_remove_readonly(func, path, exc):
     """Error handler for Windows readonly file issues."""
@@ -36,18 +40,22 @@ class ExecutionEngine:
       6. Clean up workspace
     """
 
-    def __init__(self, llm_client, workspace_root: str, rule_providers=None, max_pipeline_retries: int = 25):
+    def __init__(self, llm_client, workspace_root: str, rule_providers=None, max_pipeline_retries: int = 25, context_retriever=None, repo_graph=None):
         """
         Args:
             llm_client: LLM client instance.
             workspace_root: Root directory for task workspaces.
             rule_providers: Optional list of rule providers for validation.
             max_pipeline_retries: Max retries for the CodingAgent→Validation loop.
+            context_retriever: Optional ContextRetriever for Phase 4 intelligence.
+            repo_graph: Optional RepoGraph for Phase 4 intelligence.
         """
         self.llm_client = llm_client
         self.workspace_root = workspace_root
         self.rule_providers = rule_providers or []
         self.max_pipeline_retries = max_pipeline_retries
+        self.context_retriever = context_retriever
+        self.repo_graph = repo_graph
 
     def execute_task(self, task: Task, repo_path: str, run: RunExecution) -> bool:
         """
@@ -75,8 +83,19 @@ class ExecutionEngine:
             # Convert task to story format for the existing pipeline
             story = self._task_to_story(task)
 
+            # Retrieve intelligent context if available
+            intel_context = None
+            if self.context_retriever and self.repo_graph:
+                try:
+                    intel_context = self.context_retriever.get_context(
+                        f"{task.title}: {task.description}", self.repo_graph
+                    )
+                    run.log(f"Intelligence context: {len(intel_context.relevant_files)} relevant files")
+                except Exception as e:
+                    run.log(f"Intelligence context retrieval failed (non-fatal): {e}")
+
             # Execute via PipelineOrchestrator
-            success = self._run_pipeline(story, isolated_repo, task_workspace)
+            success = self._run_pipeline(story, isolated_repo, task_workspace, intel_context=intel_context)
 
             if success:
                 # Run quality gate verification
@@ -119,7 +138,7 @@ class ExecutionEngine:
             "acceptance_criteria": task.success_criteria,
         }
 
-    def _run_pipeline(self, story: Dict, isolated_repo: str, task_workspace: str) -> bool:
+    def _run_pipeline(self, story: Dict, isolated_repo: str, task_workspace: str, intel_context=None) -> bool:
         """Run the CodingAgent→ValidationAgent pipeline."""
         from agents.coding_agent import CodingAgent
         from config import Config
@@ -142,6 +161,10 @@ class ExecutionEngine:
 
         checkpoint_path = os.path.join(task_workspace, "checkpoint.json")
         additional_context = {"checkpoint_path": checkpoint_path}
+
+        # Inject intelligence context if available
+        if intel_context:
+            additional_context["repo_intelligence"] = intel_context.to_prompt_context()
 
         return executor.execute_story(story, isolated_repo, additional_context=additional_context)
 
