@@ -141,7 +141,8 @@ class CodingAgent(BaseAgent):
             story, 
             repo_path, 
             context.get("validation_feedback", []), 
-            context.get("global_rules", [])
+            context.get("global_rules", []),
+            context.get("repo_intelligence", "")
         )
         
         # Resume if checkpoint exists
@@ -410,7 +411,7 @@ class CodingAgent(BaseAgent):
             return {"success": False, "error": f"Unknown tool: {function_name}"}
 
 
-    def _build_task_prompt(self, story: Dict, repo_path: str, validation_feedback: List[str], global_rules: List[str]) -> str:
+    def _build_task_prompt(self, story: Dict, repo_path: str, validation_feedback: List[str], global_rules: List[str], repo_intelligence: str = "") -> str:
         """
         Constructs the task-specific prompt (USER PROMPT layer).
         
@@ -422,6 +423,7 @@ class CodingAgent(BaseAgent):
             repo_path (str): The workspace repository path.
             validation_feedback (List[str]): Any feedback provided from prior validation attempts.
             global_rules (List[str]): Quality gates to adhere to.
+            repo_intelligence (str): Pre-indexed codebase context from the intelligence layer.
 
         Returns:
             str: The task-specific prompt containing only story details and context.
@@ -455,4 +457,5 @@ Global Quality Rules:
 
 Repository Path: {repo_path}{feedback_text}
 
+{f'Codebase Context (pre-indexed):\n{repo_intelligence}' if repo_intelligence else ''}
 Begin implementation."""

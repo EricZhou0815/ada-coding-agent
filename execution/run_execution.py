@@ -40,7 +40,7 @@ class ExecutionEngine:
       6. Clean up workspace
     """
 
-    def __init__(self, llm_client, workspace_root: str, rule_providers=None, max_pipeline_retries: int = 25, context_retriever=None, repo_graph=None):
+    def __init__(self, llm_client, workspace_root: str, rule_providers=None, max_pipeline_retries: int = 25, context_retriever=None, repo_graph=None, use_intelligence: bool = True):
         """
         Args:
             llm_client: LLM client instance.
@@ -56,6 +56,7 @@ class ExecutionEngine:
         self.max_pipeline_retries = max_pipeline_retries
         self.context_retriever = context_retriever
         self.repo_graph = repo_graph
+        self.use_intelligence = use_intelligence
 
     def execute_task(self, task: Task, repo_path: str, run: RunExecution) -> bool:
         """
@@ -85,7 +86,7 @@ class ExecutionEngine:
 
             # Retrieve intelligent context if available
             intel_context = None
-            if self.context_retriever and self.repo_graph:
+            if self.use_intelligence and self.context_retriever and self.repo_graph:
                 try:
                     intel_context = self.context_retriever.get_context(
                         f"{task.title}: {task.description}", self.repo_graph

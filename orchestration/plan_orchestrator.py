@@ -40,6 +40,8 @@ class PlanOrchestrator:
         rule_providers=None,
         max_task_retries: int = 3,
         max_pipeline_retries: int = 25,
+        # Set to True to enable Phase 4 intelligence features
+        use_intelligence: bool = False,
     ):
         """
         Args:
@@ -56,8 +58,9 @@ class PlanOrchestrator:
         self.rule_providers = rule_providers or []
         self.max_task_retries = max_task_retries
         self.max_pipeline_retries = max_pipeline_retries
-        self.graph_builder = RepoGraphBuilder()
-        self.context_retriever = ContextRetriever()
+        self.use_intelligence = use_intelligence
+        self.graph_builder = RepoGraphBuilder() if use_intelligence else None
+        self.context_retriever = ContextRetriever() if use_intelligence else None
         self._repo_graph: Optional[RepoGraph] = None
 
     def execute_story(self, story: Dict, repo_path: str) -> bool:
@@ -76,23 +79,27 @@ class PlanOrchestrator:
 
         logger.info("PlanOrchestrator", f"Starting pipeline for [{story_id}]: {story_title}")
 
-        # ── Step 0: Build/Update Repository Intelligence Graph ───────────
-        logger.info("PlanOrchestrator", "Step 0: Building repository intelligence graph...")
-        graph_path = os.path.join(self.workspace_root, "repo_graph.json")
-        if self._repo_graph:
-            self._repo_graph = self.graph_builder.incremental_update(repo_path, self._repo_graph)
-        else:
-            existing = self.graph_builder.load(graph_path)
-            if existing:
-                self._repo_graph = self.graph_builder.incremental_update(repo_path, existing)
+        # ── Step 0: Build/Update Repository Intelligence Graph (optional) ───────────
+        if self.use_intelligence:
+            logger.info("PlanOrchestrator", "Step 0: Building repository intelligence graph...")
+            graph_path = os.path.join(self.workspace_root, "repo_graph.json")
+            if self._repo_graph:
+                self._repo_graph = self.graph_builder.incremental_update(repo_path, self._repo_graph)
             else:
-                self._repo_graph = self.graph_builder.build(repo_path)
-        self.graph_builder.save(self._repo_graph, graph_path)
+                existing = self.graph_builder.load(graph_path)
+                if existing:
+                    self._repo_graph = self.graph_builder.incremental_update(repo_path, existing)
+                else:
+                    self._repo_graph = self.graph_builder.build(repo_path)
+            self.graph_builder.save(self._repo_graph, graph_path)
+            planning_context = {"repo_summary": self._repo_graph.summary()}
+        else:
+            self._repo_graph = None
+            planning_context = {}
 
         # ── Step 1: Generate Implementation Plan ─────────────────────────
         logger.info("PlanOrchestrator", "Step 1: Generating implementation plan...")
         planner = PlannerAgent(self.llm_client, self.tools)
-        planning_context = {"repo_summary": self._repo_graph.summary()}
         plan = planner.plan(story, repo_path, context=planning_context)
 
         if not plan or not plan.tasks:
@@ -124,8 +131,9 @@ class PlanOrchestrator:
             workspace_root=os.path.join(self.workspace_root, f"plan_{plan.plan_id[:8]}"),
             rule_providers=self.rule_providers,
             max_pipeline_retries=self.max_pipeline_retries,
-            context_retriever=self.context_retriever,
-            repo_graph=self._repo_graph,
+            context_retriever=self.context_retriever if self.use_intelligence else None,
+            repo_graph=self._repo_graph if self.use_intelligence else None,
+            use_intelligence=self.use_intelligence,
         )
 
         scheduler = TaskScheduler(graph, max_retries=self.max_task_retries)
